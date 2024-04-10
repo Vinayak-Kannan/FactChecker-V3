@@ -1,0 +1,9 @@
+/.env
+*.csv
+*.bin
+*.sqlite3
+*.pickle
+*.pkl
+/Clustering/Clustering/Chroma/
+.idea/
+.DS_Store
