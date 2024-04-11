@@ -9,6 +9,8 @@ class DataLoader():
         self.epa_who_data = pd.read_csv(
             "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Scraping/Transformed Data/climate_change_epa_who.csv")
         self.epa_who_data['Category'] = -1
+        self.epa_who_data['Numerical Rating'] = 3
+
 
         self.card_data = pd.read_csv(
             "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Testing/Adhoc Analysis/data/training/training.csv")
@@ -16,13 +18,25 @@ class DataLoader():
         self.card_data_score = pd.read_csv(
             "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Testing/Adhoc Analysis/data/training/train_with_score.csv")
         self.card_data['score'] = self.card_data_score['score']
+        self.card_data = self.card_data.rename(columns={'text': 'Text', 'claim': 'Category'})
+        # To the card_data, add a 'Numerical Rating' column with value 1
+        self.card_data['Numerical Rating'] = 1
+
+        # Filter out rows from all datasets where 'Text' is NaN
+        self.ground_truth = self.ground_truth.dropna(subset=['Text'])
+        self.epa_who_data = self.epa_who_data.dropna(subset=['Text'])
+        self.card_data = self.card_data.dropna(subset=['Text'])
+
+        # Filter out rows from all datasets where 'Text' is empty
+        self.ground_truth = self.ground_truth[self.ground_truth['Text'] != '']
+        self.epa_who_data = self.epa_who_data[self.epa_who_data['Text'] != '']
+        self.card_data = self.card_data[self.card_data['Text'] != '']
+
 
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool) -> (
     pd.DataFrame, pd.DataFrame):
-        # To the card_data, add a 'Numerical Rating' column with value 1
-        self.card_data['Numerical Rating'] = 1  # 10 * 3/2 // 5
+
         # Filter card_data where 'Category' is not 0_0
-        self.card_data = self.card_data.rename(columns={'text': 'Text', 'claim': 'Category'})
         self.card_data = self.card_data[self.card_data['Category'] != '0_0']
         self.card_data = self.card_data[self.card_data['score'] > 0.7]
         card_data_claim_categories = len(self.card_data['Category'].value_counts())
@@ -65,7 +79,7 @@ class DataLoader():
         if use_ground_truth and use_epa_data:
             count_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
             while num_per_category_needed * card_data_claim_categories > count_false:
-                sample = self.card_data.sample().rename(columns={'text': 'Text', 'claim': 'Category'})
+                sample = self.card_data.sample()
                 sample['Numerical_Rating'] = [1]
                 self.ground_truth = pd.concat([self.ground_truth, sample])
                 self.ground_truth = self.ground_truth.drop_duplicates()
@@ -80,3 +94,32 @@ class DataLoader():
         print(train_df['Numerical Rating'].value_counts())
         print(test_df['Numerical Rating'].value_counts())
         return train_df, test_df
+
+    def create_large_train_test_df(self) -> (pd.DataFrame, pd.DataFrame):
+        self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
+        # Randomly sample half of the rows from epa_data
+        epa_data_train = self.epa_who_data.sample(frac=0.5)
+        epa_data_test = self.epa_who_data[~self.epa_who_data.index.isin(epa_data_train.index)]
+        # Randomly sample half of the rows from ground_truth
+        ground_truth_train = self.ground_truth.sample(frac=0.5)
+        ground_truth_test = self.ground_truth[~self.ground_truth.index.isin(ground_truth_train.index)]
+        # Randomly sample 5000 rows from CARD
+        card_data = self.card_data.sample(5000)
+        # Randomly sample half of the rows from card_data
+        card_data_train = card_data.sample(frac=0.5)
+        card_data_test = card_data[~card_data.index.isin(card_data_train.index)]
+
+        # Concatenate the training data
+        train_df = pd.concat([epa_data_train, ground_truth_train, card_data_train], ignore_index=True)
+        # Concatenate the testing data
+        test_df = pd.concat([epa_data_test, ground_truth_test, card_data_test], ignore_index=True)
+
+        train_df['Numerical Rating'] = train_df['Numerical Rating'].astype(int)
+        test_df['Numerical Rating'] = test_df['Numerical Rating'].astype(int)
+
+        print(train_df['Numerical Rating'].value_counts())
+        print(test_df['Numerical Rating'].value_counts())
+
+        return train_df, test_df
+
+

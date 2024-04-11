@@ -71,6 +71,17 @@ class ClusterAndPredict:
         self.ground_truth_df = pd.DataFrame()
         self.precision_on_three = 0
         self.recall_on_three = 0
+        self.precision_on_three_excluding_fours = 0
+        self.recall_on_three_excluding_fours = 0
+
+        self.accuracy_90_confidence = 0
+        self.accuracy_80_confidence = 0
+        self.accuracy_70_confidence = 0
+        self.accuracy_60_confidence = 0
+        self.percentage_90_confidence = 0
+        self.percentage_80_confidence = 0
+        self.percentage_70_confidence = 0
+        self.percentage_60_confidence = 0
 
         # OpenAI
         api_key = os.getenv("OPEN_AI_KEY")
@@ -164,6 +175,7 @@ class ClusterAndPredict:
         true_positives = 0
         false_positives = 0
         false_negatives = 0
+
         for i, value in enumerate(self.predicted_means):
             if value == 3:
                 if self.actual_veracities[i] == 3:
@@ -182,6 +194,68 @@ class ClusterAndPredict:
         self.precision_on_three = precision
         self.recall_on_three = recall
 
+        precision_no_fours = 0
+        recall_no_fours = 0
+        true_positives_no_fours = 0
+        false_positives_no_fours = 0
+        false_negatives_no_fours = 0
+
+        for i, value in enumerate(self.predicted_means):
+            if value == 4:
+                continue
+            if value == 3:
+                if self.actual_veracities[i] == 3:
+                    true_positives_no_fours += 1
+                else:
+                    false_positives_no_fours += 1
+            else:
+                if self.actual_veracities[i] == 3:
+                    false_negatives_no_fours += 1
+
+        if true_positives_no_fours + false_positives_no_fours != 0:
+            precision_no_fours = true_positives_no_fours / (true_positives_no_fours + false_positives_no_fours)
+        if true_positives_no_fours + false_negatives_no_fours != 0:
+            recall_no_fours = true_positives_no_fours / (true_positives_no_fours + false_negatives_no_fours)
+
+        self.precision_on_three_excluding_fours = precision_no_fours
+        self.recall_on_three_excluding_fours = recall_no_fours
+
+        # Store confidence scores and report accuracy based on confidence. 5 means confidence not high enough
+        predictions_90_confidence = []
+        predictions_80_confidence = []
+        predictions_70_confidence = []
+        predictions_60_confidence = []
+        for i, value in enumerate(self.predicted_means):
+            if self.confidences[i] >= 0.9:
+                predictions_90_confidence.append(value)
+            else:
+                predictions_90_confidence.append(5)
+
+            if self.confidences[i] >= 0.8:
+                predictions_80_confidence.append(value)
+            else:
+                predictions_80_confidence.append(5)
+
+            if self.confidences[i] >= 0.7:
+                predictions_70_confidence.append(value)
+            else:
+                predictions_70_confidence.append(5)
+
+            if self.confidences[i] >= 0.6:
+                predictions_60_confidence.append(value)
+            else:
+                predictions_60_confidence.append(5)
+
+        self.accuracy_90_confidence = metrics.accuracy_score(self.actual_veracities, predictions_90_confidence)
+        self.accuracy_80_confidence = metrics.accuracy_score(self.actual_veracities, predictions_80_confidence)
+        self.accuracy_70_confidence = metrics.accuracy_score(self.actual_veracities, predictions_70_confidence)
+        self.accuracy_60_confidence = metrics.accuracy_score(self.actual_veracities, predictions_60_confidence)
+
+        self.percentage_90_confidence = 1 - (predictions_90_confidence.count(5) / len(predictions_90_confidence))
+        self.percentage_80_confidence = 1 - (predictions_80_confidence.count(5) / len(predictions_80_confidence))
+        self.percentage_70_confidence = 1 - (predictions_70_confidence.count(5) / len(predictions_70_confidence))
+        self.percentage_60_confidence = 1 - (predictions_60_confidence.count(5) / len(predictions_60_confidence))
+
         return (0.5 * self.precision_on_three + 0.5 * self.recall_on_three) / 0.5
 
     def print_all_performance_metrics(self) -> None:
@@ -194,6 +268,16 @@ class ClusterAndPredict:
         print(f'Percentage of no clusters in ground truth: {self.percentage_of_no_clusters_in_ground_truth}')
         print(f'Precision on veracity 3: {self.precision_on_three}')
         print(f'Recall on veracity 3: {self.recall_on_three}')
+        print(f'Precision on veracity 3 excluding 4s: {self.precision_on_three_excluding_fours}')
+        print(f'Recall on veracity 3 excluding 4s: {self.recall_on_three_excluding_fours}')
+        print(f'Accuracy at 90% confidence: {self.accuracy_90_confidence}')
+        print(f'Accuracy at 80% confidence: {self.accuracy_80_confidence}')
+        print(f'Accuracy at 70% confidence: {self.accuracy_70_confidence}')
+        print(f'Accuracy at 60% confidence: {self.accuracy_60_confidence}')
+        print(f'Percentage of 90% confidence: {self.percentage_90_confidence}')
+        print(f'Percentage of 80% confidence: {self.percentage_80_confidence}')
+        print(f'Percentage of 70% confidence: {self.percentage_70_confidence}')
+        print(f'Percentage of 60% confidence: {self.percentage_60_confidence}')
 
     def get_all_performance_metrics(self) -> object:
         self.score([],[])
@@ -203,7 +287,17 @@ class ClusterAndPredict:
             'percentage_of_fours': self.percentage_of_fours,
             'percentage_of_no_clusters_in_ground_truth': self.percentage_of_no_clusters_in_ground_truth,
             'precision_on_three': self.precision_on_three,
-            'recall_on_three': self.recall_on_three
+            'recall_on_three': self.recall_on_three,
+            'precision_on_three_excluding_fours': self.precision_on_three_excluding_fours,
+            'recall_on_three_excluding_fours': self.recall_on_three_excluding_fours,
+            'accuracy_90_confidence': self.accuracy_90_confidence,
+            'accuracy_80_confidence': self.accuracy_80_confidence,
+            'accuracy_70_confidence': self.accuracy_70_confidence,
+            'accuracy_60_confidence': self.accuracy_60_confidence,
+            'percentage_90_confidence': self.percentage_90_confidence,
+            'percentage_80_confidence': self.percentage_80_confidence,
+            'percentage_70_confidence': self.percentage_70_confidence,
+            'percentage_60_confidence': self.percentage_60_confidence
         }
 
     def plot_confidence_histogram(self) -> None:

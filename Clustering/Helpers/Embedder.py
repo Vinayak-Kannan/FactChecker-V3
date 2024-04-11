@@ -58,7 +58,7 @@ class Embedder:
         if query and len(query['embeddings']) > 0:
             return np.array(query['embeddings'][0])
         else:
-            # print("Had to create embedding...")
+            print("Had to create embedding...")
             result = self.client.embeddings.create(input=[text], model=model).data[
                 0].embedding  # extra_body={'dimensions': 256}
             self.embedding_collection.upsert(
