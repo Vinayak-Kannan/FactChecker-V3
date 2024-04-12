@@ -67,30 +67,39 @@ class RedditScraper:
     def get_claims(self, df: pd.DataFrame, claim_column_name: str) -> pd.DataFrame:
         # Convert the dataframe column into a list
         claims = df[claim_column_name].tolist()
+        for i, claim in enumerate(claims):
+            # Replace all "." in the claim with ", "
+            claims[i] = claim.replace(".", ", ")
+            claims[i] = claim.replace(";", ", ")
+            claims[i] = claim.replace("...", ", ")
+            claims[i] = claim.replace("\n", ", ")
+            
 
-        # Join the list into a single string
-        sentences = ". ".join(claims)
 
-        sentences = re.sub(r'\.\.\d{2}', '', sentences)
-        sentences = re.sub(r'\.\.\d{1}', '', sentences)
-        sentences = re.sub(r'\.\d{2}', '.', sentences)
-        sentences = re.sub(r'\.\d{1}', '.', sentences)
-        # Tokenize the sentences
-        sentences = nltk.sent_tokenize(sentences)
-        # Loop through sentences. If they don't end in a '.' add a '.'
-        for i, sentence in enumerate(sentences):
-            if sentence[-1] != ".":
-                sentences[i] = sentence + "."
+        # UNcommet for actual reddit scraping
+        # # Join the list into a single string
+        # sentences = ". ".join(claims)
+        #
+        # sentences = re.sub(r'\.\.\d{2}', '', sentences)
+        # sentences = re.sub(r'\.\.\d{1}', '', sentences)
+        # sentences = re.sub(r'\.\d{2}', '.', sentences)
+        # sentences = re.sub(r'\.\d{1}', '.', sentences)
+        # # Tokenize the sentences
+        # sentences = nltk.sent_tokenize(sentences)
+        # # Loop through sentences. If they don't end in a '.' add a '.'
+        # for i, sentence in enumerate(sentences):
+        #     if sentence[-1] != ".":
+        #         sentences[i] = sentence + "."
 
+        sentences = claims
         sentence_batch = ""
-        batch_size = 5000
+        batch_size = 1
         response = pd.DataFrame()
         num_claims_sent = 0
         print(len(sentences))
         for i, sentence in tqdm(enumerate(sentences)):
-            sentence_batch += sentence + " "
-            if i % batch_size == 0:
-                print(i)
+            sentence_batch += sentence + ". "
+            if i % batch_size == 0 or i == len(sentences) - 1:
                 response_body = self.__make_request("https://idir.uta.edu/claimbuster/api/v2/score/text/sentences/",
                                                     sentence_batch)
                 parsed_response = self.__parse_response(response_body)

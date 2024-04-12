@@ -73,6 +73,7 @@ class ClusterAndPredict:
         self.recall_on_three = 0
         self.precision_on_three_excluding_fours = 0
         self.recall_on_three_excluding_fours = 0
+        self.average_confidence_for_3 = 0
 
         self.accuracy_90_confidence = 0
         self.accuracy_80_confidence = 0
@@ -199,11 +200,13 @@ class ClusterAndPredict:
         true_positives_no_fours = 0
         false_positives_no_fours = 0
         false_negatives_no_fours = 0
+        average_confidence_for_3 = []
 
         for i, value in enumerate(self.predicted_means):
             if value == 4:
                 continue
             if value == 3:
+                average_confidence_for_3.append(self.confidences[i])
                 if self.actual_veracities[i] == 3:
                     true_positives_no_fours += 1
                 else:
@@ -211,6 +214,8 @@ class ClusterAndPredict:
             else:
                 if self.actual_veracities[i] == 3:
                     false_negatives_no_fours += 1
+
+        self.average_confidence_for_3 = sum(average_confidence_for_3) / len(average_confidence_for_3)
 
         if true_positives_no_fours + false_positives_no_fours != 0:
             precision_no_fours = true_positives_no_fours / (true_positives_no_fours + false_positives_no_fours)
@@ -268,6 +273,7 @@ class ClusterAndPredict:
         print(f'Percentage of no clusters in ground truth: {self.percentage_of_no_clusters_in_ground_truth}')
         print(f'Precision on veracity 3: {self.precision_on_three}')
         print(f'Recall on veracity 3: {self.recall_on_three}')
+        print('Average confidence for 3: ', self.average_confidence_for_3)
         print(f'Precision on veracity 3 excluding 4s: {self.precision_on_three_excluding_fours}')
         print(f'Recall on veracity 3 excluding 4s: {self.recall_on_three_excluding_fours}')
         print(f'Accuracy at 90% confidence: {self.accuracy_90_confidence}')
@@ -288,6 +294,7 @@ class ClusterAndPredict:
             'percentage_of_no_clusters_in_ground_truth': self.percentage_of_no_clusters_in_ground_truth,
             'precision_on_three': self.precision_on_three,
             'recall_on_three': self.recall_on_three,
+            'average_confidence_for_3': self.average_confidence_for_3,
             'precision_on_three_excluding_fours': self.precision_on_three_excluding_fours,
             'recall_on_three_excluding_fours': self.recall_on_three_excluding_fours,
             'accuracy_90_confidence': self.accuracy_90_confidence,

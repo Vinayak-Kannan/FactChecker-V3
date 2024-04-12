@@ -79,7 +79,9 @@ class Embedder:
         veracity = veracity.astype(float)
 
         target_classify = df[supervised_label_column_name]
-        target_classify = target_classify.astype(int)
+        target_classify = np.array(target_classify.astype(int))
+        from collections import Counter
+        counts = Counter(target_classify)
 
         if not self.no_umap:
             # Reduce using UMAP
