@@ -15,7 +15,7 @@ class DataLoader():
 
         # EPA
         self.epa_who_data = pd.read_csv(
-            "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Scraping/Transformed Data/climate_change_epa_who.csv")
+            "/Clustering/Raw Data/Climate/climate_change_epa_who.csv")
         self.epa_who_data['Category'] = -1
         self.epa_who_data['Numerical Rating'] = 3
         self.epa_who_data = self.epa_who_data.dropna(subset=['Text'])
@@ -28,21 +28,21 @@ class DataLoader():
             "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Testing/Adhoc Analysis/data/training/training.csv")
 
         self.card_data_score = pd.read_csv(
-            "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Testing/Adhoc Analysis/data/training/train_with_score.csv")
+            "/Testing/Adhoc Analysis/data/training/card_train_with_score.csv")
         self.card_data['score'] = self.card_data_score['score']
         self.card_data = self.card_data.rename(columns={'text': 'Text', 'claim': 'Category'})
         # To the card_data, add a 'Numerical Rating' column with value 1
         self.card_data['Numerical Rating'] = 1
         self.card_data = self.card_data.dropna(subset=['Text'])
         self.card_data = self.card_data[self.card_data['Text'] != '']
-        self.card_data = self.card_data[self.card_data['score'] > 0.8]
+        self.card_data = self.card_data[self.card_data['score'] > 0.7]
+        # self.card_data = self.card_data[self.card_data['Category'] != '0_0']
 
 
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool) -> (
     pd.DataFrame, pd.DataFrame):
 
         # Filter card_data where 'Category' is not 0_0
-        self.card_data = self.card_data[self.card_data['Category'] != '0_0']
         card_data_claim_categories = len(self.card_data['Category'].value_counts())
 
         num_per_category_needed = 0
