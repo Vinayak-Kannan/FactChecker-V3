@@ -14,6 +14,9 @@ import pandas as pd
 from joblib import load
 from sklearn.neighbors import KNeighborsClassifier
 from umap.parametric_umap import ParametricUMAP
+import tensorflow as tf
+from tensorflow.python import keras
+from tensorflow.python.keras.layers import Dense
 
 
 class ClaimClassifier:
@@ -119,12 +122,28 @@ class ClaimClassifier:
 
         reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
                             random_state=23 if Embedder.random_seed else None, n_jobs=1)
+
+        y_tensor = temp_df["veracity"].astype(int).tolist()
         if parametric_umap:
-            reducer = ParametricUMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
-                                     random_state=23 if Embedder.random_seed else None, n_jobs=1)
+            encoder = keras.Sequential([
+                keras.layers.InputLayer(input_shape=(3072, )),
+                keras.layers.Dense(units=256, activation="relu"),
+                keras.layers.Dense(units=256, activation="relu"),
+                keras.layers.Dense(units=self.num_components),
+            ])
+            encoder.summary()
+            reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
+            embedding_np = tf.convert_to_tensor(embedding_np)
+            y_tensor = tf.convert_to_tensor(y_tensor)
 
         if supervised_umap:
-            embedding_np = reducer.fit_transform(embedding_np, y=temp_df["veracity"].tolist())
+            embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
+            if parametric_umap:
+                print(reducer._history)
+                fig, ax = plt.subplots()
+                ax.plot(reducer._history['loss'])
+                ax.set_ylabel('Cross Entropy')
+                ax.set_xlabel('Epoch')
         else:
             embedding_np = reducer.fit_transform(embedding_np)
 
@@ -138,7 +157,8 @@ class ClaimClassifier:
         labels, sds, confidences = self.__run_knn(temp_df, "text", "cluster", "predict", k,
                                                   use_weightage, batch_mode=True)
 
-        return labels, sds, confidences
+
+        return labels, sds, confidences, temp_df
 
     def __create_classify_graph_v2(self, claim_df: pd.DataFrame) -> None:
         # Create a graph of the clusters

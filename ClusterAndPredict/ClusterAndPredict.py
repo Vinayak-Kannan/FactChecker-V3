@@ -23,13 +23,15 @@ load_dotenv()
 
 class ClusterAndPredict:
     def __init__(self, min_cluster_size: int = 5, min_samples: int = 1, n_neighbors: int = 200, min_dist: float = 0,
-                 num_components: int = 100, no_umap: bool = False, k=5, supervised_umap: bool = False, random_seed: bool = False,
+                 num_components: int = 100, no_umap: bool = False, k=5, supervised_umap: bool = False,
+                 random_seed: bool = False,
                  use_weightage: bool = False,
                  supervised_label_column_name: str = 'Numerical Rating',
                  claim_column_name: str = 'Text',
                  veracity_column_name: str = 'Numerical Rating',
                  parametric_umap: bool = False,
                  train_df: pd.DataFrame = pd.DataFrame()):
+        self.train_text = None
         self.EmbedderObject = None
         self.ClusterEmbeddingsObject = None
         self.min_cluster_size = min_cluster_size
@@ -55,6 +57,7 @@ class ClusterAndPredict:
         # Randomly split the data into train and test
         self.train_df = train_df  # df.sample(frac=self.train_percentage, replace=False, random_state=23)
         # self.test_df = test_df # df.drop(self.train_df.index)
+        self.clusters_df = pd.DataFrame()
         self.predicted_means = []
         self.predicted_sds = []
         self.confidences = []
@@ -130,8 +133,14 @@ class ClusterAndPredict:
         # predicted_sd = []
         # predicted_confidence = []
 
-        predicted_mean, predicted_sd, predicted_confidence = ClaimClassifierObject.classify_v2_batch(X, self.EmbedderObject, self.k, self.use_weightage, self.supervised_umap, self.parametric_umap)
-
+        # cluster_df columns - text, veracity, predict, embeddings, cluster
+        predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(X,
+                                                                                                                 self.EmbedderObject,
+                                                                                                                 self.k,
+                                                                                                                 self.use_weightage,
+                                                                                                                 self.supervised_umap,
+                                                                                                                 self.parametric_umap)
+        self.clusters_df = cluster_df
         # for i, claim in enumerate(X):
         #     mean, sd, confidence = ClaimClassifierObject.classify_v2(claim, self.EmbedderObject, 1, 0.8, False, self.k, self.use_weightage)
         #     if confidence < 1:
@@ -144,6 +153,7 @@ class ClusterAndPredict:
         self.predicted_sds = predicted_sd
         self.confidences = predicted_confidence
 
+        self.train_text = X
         self.actual_veracities = y
 
     def score(self, X_test, y_test):
@@ -159,7 +169,11 @@ class ClusterAndPredict:
         accuracy_not_including_fours_values_count_correct = 0
         accuracy_not_including_fours_values_count_total = 0
 
+        self.clusters_df['predicted_veracity'] = self.clusters_df['veracity']
         for i, value in enumerate(self.predicted_means):
+            claim = self.train_text[i]
+            self.clusters_df.loc[self.clusters_df['text'] == claim, 'predicted_veracity'] = value
+            self.clusters_df.loc[self.clusters_df['text'] == claim, 'veracity'] = self.actual_veracities[i]
             if value != 4:
                 accuracy_not_including_fours_values_count_total += 1
                 if self.actual_veracities[i] == value:
@@ -169,6 +183,21 @@ class ClusterAndPredict:
             self.accuracy_not_including_fours = 0
         else:
             self.accuracy_not_including_fours = accuracy_not_including_fours_values_count_correct / accuracy_not_including_fours_values_count_total
+
+        # Fill in cluster accuracy and number wrong in clusters_df
+        self.clusters_df['num_correct_in_cluster'] = 0
+        self.clusters_df['total_in_cluster'] = 0
+        self.clusters_df['cluster_accuracy'] = 0
+        self.clusters_df['num_correct_in_cluster'] = (
+                    (self.clusters_df['veracity'] == self.clusters_df['predicted_veracity']))
+        self.clusters_df['num_correct_in_cluster'] = self.clusters_df.groupby('cluster')[
+            'num_correct_in_cluster'].transform('sum')
+        self.clusters_df['total_in_cluster'] = self.clusters_df[self.clusters_df['predict'] == True].groupby('cluster')['cluster'].transform('size')
+        # Fill Nan in total_in_cluster with 1
+        self.clusters_df['total_in_cluster'] = self.clusters_df['total_in_cluster'].fillna(0)
+        self.clusters_df['cluster_accuracy'] = self.clusters_df['num_correct_in_cluster'].div(self.clusters_df['total_in_cluster'], fill_value=1)
+        # In cluster_accuracy, fill inf or Nan with 1
+        self.clusters_df['cluster_accuracy'] = self.clusters_df['cluster_accuracy'].replace([float('inf'), float('nan')], 1)
 
         # Calculate precision and recall for veracity 3
         precision = 0
@@ -264,7 +293,7 @@ class ClusterAndPredict:
         return (0.5 * self.precision_on_three + 0.5 * self.recall_on_three) / 0.5
 
     def print_all_performance_metrics(self) -> None:
-        self.score([],[])
+        self.score([], [])
         print(self.actual_veracities)
         print(self.predicted_means)
         print(f'Accuracy: {self.accuracy}')
@@ -286,7 +315,7 @@ class ClusterAndPredict:
         print(f'Percentage of 60% confidence: {self.percentage_60_confidence}')
 
     def get_all_performance_metrics(self) -> object:
-        self.score([],[])
+        self.score([], [])
         return {
             'accuracy': self.accuracy,
             'accuracy_not_including_fours': self.accuracy_not_including_fours,
@@ -304,7 +333,8 @@ class ClusterAndPredict:
             'percentage_90_confidence': self.percentage_90_confidence,
             'percentage_80_confidence': self.percentage_80_confidence,
             'percentage_70_confidence': self.percentage_70_confidence,
-            'percentage_60_confidence': self.percentage_60_confidence
+            'percentage_60_confidence': self.percentage_60_confidence,
+            'cluster_df': self.clusters_df,
         }
 
     def plot_confidence_histogram(self) -> None:
@@ -369,7 +399,6 @@ class ClusterAndPredict:
         # Step 4: Apply the model to the entire corpus
         corpus_tfidf = tfidf[corpus]
 
-
         results = []
         # Step 5: Find the terms with the highest TF-IDF score in each document
         for doc in corpus_tfidf:
@@ -418,7 +447,7 @@ class ClusterAndPredict:
         return self.ground_truth_df, cluster_counts
 
     def get_accuracy(self):
-        self.score([],[])
+        self.score([], [])
         return self.accuracy
 
     def get_was_supervised(self):
