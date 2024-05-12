@@ -37,8 +37,8 @@ class ClusterEmbeddings:
         hdbscan_object = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples, prediction_data=True, approx_min_span_tree=False).fit(reduced_collection['embeddings'])
         hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples, prediction_data=True, approx_min_span_tree=False).fit_predict(reduced_collection['embeddings'])
         # pickle the hdbscan object
-        with open(f"/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Models/hdbscan_model_{self.time}.pkl", "wb") as f:
-            joblib.dump(hdbscan_object, f)
+        # with open(f"/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Models/hdbscan_model_{self.time}.pkl", "wb") as f:
+        #     joblib.dump(hdbscan_object, f)
 
         # Print % of -1 clusters
         percentage_of_no_clusters = len(hdbscan_labels[hdbscan_labels == -1]) / len(hdbscan_labels)
@@ -55,6 +55,6 @@ class ClusterEmbeddings:
 
         # Unique clusters
         unique_clusters = df['cluster'].unique()
-        print("Number of clusters: " + str(len(unique_clusters)))
+        # print("Number of clusters: " + str(len(unique_clusters)))
         return df, percentage_of_no_clusters
 

@@ -80,8 +80,6 @@ class Embedder:
 
         target_classify = df[supervised_label_column_name]
         target_classify = np.array(target_classify.astype(int))
-        from collections import Counter
-        counts = Counter(target_classify)
 
         if not self.no_umap:
             # Reduce using UMAP
@@ -94,7 +92,7 @@ class Embedder:
                 embeddings_reduced_object = reducer.fit(embeddings, y=target_classify)
             else:
                 embeddings_reduced_object = reducer.fit(embeddings)
-            embeddings_reduced = reducer.transform(embeddings)
+            embeddings_reduced = embeddings_reduced_object.transform(embeddings)
             # pickle the urlmap object
             with open(
                     f"/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Models/urlmap_object_{self.time}.pkl",

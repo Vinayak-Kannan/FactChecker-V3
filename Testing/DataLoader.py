@@ -11,6 +11,8 @@ class DataLoader():
             "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/VK's Copy of Cleaned - Google Fact Check Explorer - Climate.xlsx - Corrected.csv")
         self.ground_truth = self.ground_truth.dropna(subset=['Text'])
         self.ground_truth = self.ground_truth[self.ground_truth['Text'] != '']
+        self.ground_truth = self.ground_truth.drop_duplicates(subset=['Text'])
+        self.ground_truth['Synthetic'] = [False for i in range(len(self.ground_truth))]
 
         # EPA
         self.epa_who_data = pd.read_csv(
@@ -19,6 +21,9 @@ class DataLoader():
         self.epa_who_data['Numerical Rating'] = 3
         self.epa_who_data = self.epa_who_data.dropna(subset=['Text'])
         self.epa_who_data = self.epa_who_data[self.epa_who_data['Text'] != '']
+        self.epa_who_data = self.epa_who_data.drop_duplicates(subset=['Text'])
+        self.epa_who_data['Synthetic'] = [False for i in range(len(self.epa_who_data))]
+
 
         self.epa_who_data_negated = pd.read_csv(
             "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Negated Claims/negated_epa_data.csv")
@@ -27,8 +32,8 @@ class DataLoader():
         self.epa_who_data_negated = self.epa_who_data_negated.rename(columns={'text': 'Text'})
         self.epa_who_data_negated = self.epa_who_data_negated.dropna(subset=['Text'])
         self.epa_who_data_negated = self.epa_who_data_negated[self.epa_who_data_negated['Text'] != '']
-
-
+        self.epa_who_data_negated = self.epa_who_data_negated.drop_duplicates(subset=['Text'])
+        self.epa_who_data_negated['Synthetic'] = [True for i in range(len(self.epa_who_data_negated))]
 
         # Card Data
         self.card_data = pd.read_csv(
@@ -40,6 +45,9 @@ class DataLoader():
         self.card_data = self.card_data.dropna(subset=['Text'])
         self.card_data = self.card_data[self.card_data['Text'] != '']
         self.card_data = self.card_data[self.card_data['score'] > 0.7]
+        self.card_data = self.card_data.drop_duplicates(subset=['Text'])
+        self.card_data['Synthetic'] = [False for i in range(len(self.card_data))]
+
 
         self.card_data_negated = pd.read_csv(
             "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Negated Claims/negated_card_data_score_over_0.7.csv")
@@ -52,6 +60,8 @@ class DataLoader():
         self.card_data_negated = self.card_data_negated.dropna(subset=['Text'])
         self.card_data_negated = self.card_data_negated[self.card_data_negated['Text'] != '']
         self.card_data_negated = self.card_data_negated[self.card_data_negated['score'] >= 0.7]
+        self.card_data_negated = self.card_data_negated.drop_duplicates(subset=['Text'])
+        self.card_data_negated['Synthetic'] = [True for i in range(len(self.card_data_negated))]
 
 
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool) -> (
@@ -114,7 +124,7 @@ class DataLoader():
         print(test_df['Numerical Rating'].value_counts())
         return train_df, test_df
 
-    def create_large_train_test_df(self) -> (pd.DataFrame, pd.DataFrame):
+    def create_large_train_test_df(self, remove_synthetic_data: bool) -> (pd.DataFrame, pd.DataFrame):
         self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
         # Randomly sample half of the rows from epa_data
         epa_data_train = self.epa_who_data.sample(frac=0.5)
@@ -145,13 +155,68 @@ class DataLoader():
         # Filter claims from train_df / test_df in the 'text' column which are in the top 10% and bottom 10% of claims in terms of length
         train_df['length'] = train_df['Text'].apply(lambda x: len(x.split()))
         test_df['length'] = test_df['Text'].apply(lambda x: len(x.split()))
-        train_df = train_df[train_df['length'] > train_df['length'].quantile(0.1)]
-        train_df = train_df[train_df['length'] < train_df['length'].quantile(0.9)]
-        test_df = test_df[test_df['length'] > test_df['length'].quantile(0.1)]
-        test_df = test_df[test_df['length'] < test_df['length'].quantile(0.9)]
+        # train_df = train_df[train_df['length'] > train_df['length'].quantile(0.1)]
+        # train_df = train_df[train_df['length'] < train_df['length'].quantile(0.9)]
+        # test_df = test_df[test_df['length'] > test_df['length'].quantile(0.1)]
+        # test_df = test_df[test_df['length'] < test_df['length'].quantile(0.9)]
+
+        # Remove duplicates in train_df and test_df
+        train_df = train_df.drop_duplicates(subset=['Text'])
+        test_df = test_df.drop_duplicates(subset=['Text'])
+
+        # Remove synthetic data
+        if remove_synthetic_data:
+            train_df = train_df[train_df['Synthetic'] == False]
+            test_df = test_df[test_df['Synthetic'] == False]
 
         print(train_df['Numerical Rating'].value_counts())
         print(test_df['Numerical Rating'].value_counts())
+
+        return train_df, test_df
+
+    def create_matched_large_df(self, only_use_synthetic: bool) -> (pd.DataFrame, pd.DataFrame):
+        card = pd.read_csv('/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Cleaned/card')
+        epa = pd.read_csv('/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Cleaned/epa')
+
+        # Pick half of the rows from card and epa
+        card_train = card.sample(frac=0.5)
+        card_test = card[~card.index.isin(card_train.index)]
+        epa_train = epa.sample(frac=0.5)
+        epa_test = epa[~epa.index.isin(epa_train.index)]
+
+        # Create empty dataframe with columns 'Text' and 'Numerical Rating'
+        train_df = pd.DataFrame(columns=['Text', 'Numerical Rating'])
+        test_df = pd.DataFrame(columns=['Text', 'Numerical Rating'])
+
+        # Concatenate the training data
+        train_df = pd.DataFrame(
+            pd.concat([card_train['Text'], card_train['negated_text'], epa_train['Text'], epa_train['negated_text']],
+                      ignore_index=True), columns=['Text'])
+        synthetic_train_df_array = [False for i in range(len(card_train['Text']))] + [True for i in range(len(card_train['Text']))] + [False for i in range(len(epa_train['Text']))] + [True for i in range(len(epa_train['Text']))]
+        numerical_rating = np.repeat([1, 3, 3, 1],
+                                     [len(card_train['Text']), len(card_train['negated_text']),
+                                      len(epa_train['Text']), len(epa_train['negated_text'])])
+        train_df['Numerical Rating'] = numerical_rating
+        train_df['Synthetic'] = synthetic_train_df_array
+
+        # Concatenate the testing data
+        test_df = pd.DataFrame(
+            pd.concat([card_test['Text'], card_test['negated_text'], epa_test['Text'], epa_test['negated_text']],
+                      ignore_index=True), columns=['Text'])
+        synthetic_test_df_array = [False for i in range(len(card_test['Text']))] + [True for i in range(len(card_test['Text']))] + [False for i in range(len(epa_test['Text']))] + [True for i in range(len(epa_test['Text']))]
+        numerical_rating = np.repeat([1, 3, 3, 1],
+                                     [len(card_test['Text']), len(card_test['negated_text']),
+                                      len(epa_test['Text']), len(epa_test['negated_text'])])
+        test_df['Numerical Rating'] = numerical_rating
+        test_df['Synthetic'] = synthetic_test_df_array
+
+        # Remove duplicates in train_df and test_df
+        train_df = train_df.drop_duplicates(subset=['Text'])
+        test_df = test_df.drop_duplicates(subset=['Text'])
+
+        if only_use_synthetic:
+            train_df = train_df[train_df['Synthetic'] == True]
+            test_df = test_df[test_df['Synthetic'] == True]
 
         return train_df, test_df
 

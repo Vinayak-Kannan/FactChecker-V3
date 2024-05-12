@@ -169,11 +169,22 @@ class ClusterAndPredict:
         accuracy_not_including_fours_values_count_correct = 0
         accuracy_not_including_fours_values_count_total = 0
 
-        self.clusters_df['predicted_veracity'] = self.clusters_df['veracity']
+
         for i, value in enumerate(self.predicted_means):
             claim = self.train_text[i]
-            self.clusters_df.loc[self.clusters_df['text'] == claim, 'predicted_veracity'] = value
+            if not self.clusters_df.loc[self.clusters_df['text'] == claim, 'predict'].values[0]:
+                raise ValueError("Predicted value is False")
+            cluster = self.clusters_df.loc[self.clusters_df['text'] == claim, 'cluster'].values[0]
+            if len(self.clusters_df.loc[self.clusters_df['text'] == claim, 'text'].values) > 1:
+                print(self.clusters_df.loc[self.clusters_df['text'] == claim, 'text'].values)
+                print(self.clusters_df.loc[self.clusters_df['text'] == claim, 'veracity'].values)
+                print("Yeah this shouldn't happen lol")
+            value = self.clusters_df.loc[self.clusters_df['text'] == claim, 'predicted_veracity'].values[0]
             self.clusters_df.loc[self.clusters_df['text'] == claim, 'veracity'] = self.actual_veracities[i]
+            # Note, we use 5 for claims where they are to be predicted and clustered on themselves in the df
+            if value == 4 and cluster != -1:
+                raise ValueError("Cluster should be -1 if predicted value is 4")
+
             if value != 4:
                 accuracy_not_including_fours_values_count_total += 1
                 if self.actual_veracities[i] == value:
@@ -192,7 +203,7 @@ class ClusterAndPredict:
                     (self.clusters_df['veracity'] == self.clusters_df['predicted_veracity']))
         self.clusters_df['num_correct_in_cluster'] = self.clusters_df.groupby('cluster')[
             'num_correct_in_cluster'].transform('sum')
-        self.clusters_df['total_in_cluster'] = self.clusters_df[self.clusters_df['predict'] == True].groupby('cluster')['cluster'].transform('size')
+        self.clusters_df['total_in_cluster'] = self.clusters_df.groupby('cluster')['cluster'].transform('size')
         # Fill Nan in total_in_cluster with 1
         self.clusters_df['total_in_cluster'] = self.clusters_df['total_in_cluster'].fillna(0)
         self.clusters_df['cluster_accuracy'] = self.clusters_df['num_correct_in_cluster'].div(self.clusters_df['total_in_cluster'], fill_value=1)
@@ -244,7 +255,8 @@ class ClusterAndPredict:
                 if self.actual_veracities[i] == 3:
                     false_negatives_no_fours += 1
 
-        self.average_confidence_for_3 = sum(average_confidence_for_3) / len(average_confidence_for_3)
+        if len(average_confidence_for_3) > 0:
+            self.average_confidence_for_3 = sum(average_confidence_for_3) / len(average_confidence_for_3)
 
         if true_positives_no_fours + false_positives_no_fours != 0:
             precision_no_fours = true_positives_no_fours / (true_positives_no_fours + false_positives_no_fours)

@@ -32,7 +32,7 @@ class ClaimClassifier:
         # Parse the timestamps from the filenames and find the file with the latest timestamp with .pkl extension
         # latest_file = max(list_of_files, key=lambda x: datetime.strptime(x.split('_')[-1], '%Y-%m-%d %H:%M:%S.pkl'))
         # Load the model from the file
-        self.model = load(path_to_model + 'hdbscan_model_' + time_stamp + '.pkl')
+        # self.model = load(path_to_model + 'hdbscan_model_' + time_stamp + '.pkl')
         self.reduced_collection = self.chroma_client.get_or_create_collection(
             name="climate_claims_reduced_" + time_stamp,
         )
@@ -153,12 +153,63 @@ class ClaimClassifier:
                                          prediction_data=True,
                                          approx_min_span_tree=False).fit_predict(embedding_np)
         temp_df["cluster"] = hdbscan_labels
+        print(temp_df["cluster"].value_counts())
+        output, break_further = self.break_clusters_down(hdbscan_labels, embedding_np, 30)
+        temp_df["cluster"] = output
+        print(temp_df["cluster"].value_counts())
+        while break_further:
+            print("breaking further...")
+            output, break_further = self.break_clusters_down(temp_df["cluster"], embedding_np, 30)
+            # print value counts of output
+            temp_df["cluster"] = output
+            print(temp_df["cluster"].value_counts())
 
-        labels, sds, confidences = self.__run_knn(temp_df, "text", "cluster", "predict", k,
+        temp_df["predicted_veracity"] = [-1] * len(claims) + [metadata["veracity"] for metadata in current_embeddings["metadatas"]]
+
+        # Filter temp_df where predict is False
+        temp_df_no_predictions = temp_df[temp_df["predict"] == False]
+        print("Number of clusters: " + str(len(temp_df_no_predictions["cluster"].value_counts())))
+
+        labels, sds, confidences, temp_df = self.__run_knn(temp_df, "text", "cluster", "predict", k,
                                                   use_weightage, batch_mode=True)
 
 
         return labels, sds, confidences, temp_df
+
+    def break_clusters_down(self, labels, embeddings: list[list[float]], threshold: int):
+        labels = labels.tolist()
+        # If there is any label with count greater than threshold except -1, run hdbscan on that cluster. Return the new labels
+        label_counts = Counter(labels)
+        change_needed = False
+        for label, count in label_counts.items():
+            if label != -1 and count > threshold:
+                change_needed = True
+                # Get the embeddings of the claims with the label
+                embeddings_with_label = [embeddings[i] for i in range(len(embeddings)) if labels[i] == label]
+
+                # Run hdbscan on the embeddings
+                hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
+                                                 prediction_data=True, approx_min_span_tree=False).fit_predict(embeddings_with_label)
+
+                # Convert hdbscan_labels to a list
+                hdbscan_labels = hdbscan_labels.tolist()
+
+                max_label_current = max(labels)
+                print(max_label_current)
+                new_labels = []
+                for orig_label in hdbscan_labels:
+                    if orig_label != -1:
+                        new_labels.append(orig_label + max_label_current + 1)
+                    else:
+                        new_labels.append(-1)
+
+                # Update the labels with the new labels. If the label number already exists in labels, assign a new label number
+                for i in range(len(labels)):
+                    if labels[i] == label:
+                        labels[i] = new_labels[0]
+                        new_labels = new_labels[1:]
+
+        return labels, change_needed
 
     def __create_classify_graph_v2(self, claim_df: pd.DataFrame) -> None:
         # Create a graph of the clusters
@@ -206,11 +257,16 @@ class ClaimClassifier:
         confidences_final = []
 
         for i in range(len(df_with_only_predictions)):
+            claim = df_with_only_predictions.iloc[i][claim_col]
+            index = output_df[output_df["text"] == claim].index[0]
+
             if df_with_only_predictions.iloc[i][cluster_col] == -1:
                 if batch_mode:
                     labels.append(4)
                     sds.append(0)
                     confidences_final.append(1)
+                    # Find index of claim in output_df and add predicted_veracity
+                    output_df.at[index, "predicted_veracity"] = 4
                     continue
                 else:
                     return 4, 0, 1
@@ -225,6 +281,7 @@ class ClaimClassifier:
                     labels.append(4)
                     sds.append(0)
                     confidences_final.append(1)
+                    output_df.at[index, "predicted_veracity"] = 5
                     continue
                 else:
                     return 4, 0, 1
@@ -292,4 +349,5 @@ class ClaimClassifier:
                 labels.append(int(most_common_label))
                 sds.append(sd)
                 confidences_final.append(confidence)
-        return labels, sds, confidences_final
+                output_df.at[index, "predicted_veracity"] = int(most_common_label)
+        return labels, sds, confidences_final, output_df
