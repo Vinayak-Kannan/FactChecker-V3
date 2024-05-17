@@ -8,3 +8,7 @@
 .idea/
 .DS_Store
 ~/Desktop/Projects/FactChecker/.gitREAL
+/Clustering/Raw Data/Climate/Cleaned/card
+/Clustering/Raw Data/Climate/Cleaned/epa
+/Clustering/Raw Data/Climate/Cleaned/negated_card
+/Clustering/Raw Data/Climate/Cleaned/negated_epa

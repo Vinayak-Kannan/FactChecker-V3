@@ -44,7 +44,7 @@ class DataLoader():
         self.card_data['Numerical Rating'] = 1
         self.card_data = self.card_data.dropna(subset=['Text'])
         self.card_data = self.card_data[self.card_data['Text'] != '']
-        self.card_data = self.card_data[self.card_data['score'] > 0.7]
+        self.card_data = self.card_data[self.card_data['score'] > 0.8]
         self.card_data = self.card_data.drop_duplicates(subset=['Text'])
         self.card_data['Synthetic'] = [False for i in range(len(self.card_data))]
 
@@ -59,7 +59,7 @@ class DataLoader():
         self.card_data_negated = self.card_data_negated.drop(columns=['Unnamed: 0'])
         self.card_data_negated = self.card_data_negated.dropna(subset=['Text'])
         self.card_data_negated = self.card_data_negated[self.card_data_negated['Text'] != '']
-        self.card_data_negated = self.card_data_negated[self.card_data_negated['score'] >= 0.7]
+        self.card_data_negated = self.card_data_negated[self.card_data_negated['score'] >= 0.8]
         self.card_data_negated = self.card_data_negated.drop_duplicates(subset=['Text'])
         self.card_data_negated['Synthetic'] = [True for i in range(len(self.card_data_negated))]
 
@@ -184,9 +184,11 @@ class DataLoader():
         epa_train = epa.sample(frac=0.5)
         epa_test = epa[~epa.index.isin(epa_train.index)]
 
-        # Create empty dataframe with columns 'Text' and 'Numerical Rating'
-        train_df = pd.DataFrame(columns=['Text', 'Numerical Rating'])
-        test_df = pd.DataFrame(columns=['Text', 'Numerical Rating'])
+        # Multiply each by self.percentage_false
+        card_train = card_train.sample(frac=self.percentage_false)
+        card_test = card_test.sample(frac=self.percentage_false)
+        epa_train = epa_train.sample(frac=self.percentage_false)
+        epa_test = epa_test.sample(frac=self.percentage_false)
 
         # Concatenate the training data
         train_df = pd.DataFrame(
@@ -217,6 +219,10 @@ class DataLoader():
         if only_use_synthetic:
             train_df = train_df[train_df['Synthetic'] == True]
             test_df = test_df[test_df['Synthetic'] == True]
+
+        # Print value counts
+        print(train_df['Numerical Rating'].value_counts())
+        print(test_df['Numerical Rating'].value_counts())
 
         return train_df, test_df
 

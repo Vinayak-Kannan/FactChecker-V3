@@ -163,6 +163,7 @@ class ClusterAndPredict:
         # self.chroma_client.delete_collection('climate_claims_reduced_' + self.time_stamp)
         # Loop through predicted_means and count the number of 4's
         num_of_fours = self.predicted_means.count(4)
+        print(self.predicted_means.count(5))
         self.accuracy = accuracy
         self.percentage_of_fours = num_of_fours / len(self.predicted_means)
 
@@ -176,8 +177,8 @@ class ClusterAndPredict:
                 raise ValueError("Predicted value is False")
             cluster = self.clusters_df.loc[self.clusters_df['text'] == claim, 'cluster'].values[0]
             if len(self.clusters_df.loc[self.clusters_df['text'] == claim, 'text'].values) > 1:
-                print(self.clusters_df.loc[self.clusters_df['text'] == claim, 'text'].values)
-                print(self.clusters_df.loc[self.clusters_df['text'] == claim, 'veracity'].values)
+                # print(self.clusters_df.loc[self.clusters_df['text'] == claim, 'text'].values)
+                # print(self.clusters_df.loc[self.clusters_df['text'] == claim, 'veracity'].values)
                 print("Yeah this shouldn't happen lol")
             value = self.clusters_df.loc[self.clusters_df['text'] == claim, 'predicted_veracity'].values[0]
             self.clusters_df.loc[self.clusters_df['text'] == claim, 'veracity'] = self.actual_veracities[i]
@@ -243,15 +244,13 @@ class ClusterAndPredict:
         average_confidence_for_3 = []
 
         for i, value in enumerate(self.predicted_means):
-            if value == 4:
-                continue
             if value == 3:
                 average_confidence_for_3.append(self.confidences[i])
                 if self.actual_veracities[i] == 3:
                     true_positives_no_fours += 1
                 else:
                     false_positives_no_fours += 1
-            else:
+            elif value == 1:
                 if self.actual_veracities[i] == 3:
                     false_negatives_no_fours += 1
 
@@ -262,6 +261,8 @@ class ClusterAndPredict:
             precision_no_fours = true_positives_no_fours / (true_positives_no_fours + false_positives_no_fours)
         if true_positives_no_fours + false_negatives_no_fours != 0:
             recall_no_fours = true_positives_no_fours / (true_positives_no_fours + false_negatives_no_fours)
+            print(true_positives_no_fours, false_positives_no_fours, (true_positives_no_fours + false_negatives_no_fours))
+            print(recall_no_fours, 1 / (1 + 0), true_positives_no_fours / (true_positives_no_fours + false_negatives_no_fours))
 
         self.precision_on_three_excluding_fours = precision_no_fours
         self.recall_on_three_excluding_fours = recall_no_fours

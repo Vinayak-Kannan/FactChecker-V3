@@ -89,8 +89,7 @@ class ClaimClassifier:
 
         hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
                                          prediction_data=True,
-                                         approx_min_span_tree=False).fit_predict(
-            embeddings)
+                                         approx_min_span_tree=False).fit_predict(embeddings)
         output_df["cluster"] = hdbscan_labels
 
         if show_graph:
@@ -150,19 +149,21 @@ class ClaimClassifier:
         temp_df["embeddings"] = embedding_np.tolist()
 
         hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
-                                         prediction_data=True,
+                                         prediction_data=True, cluster_selection_method='leaf',
                                          approx_min_span_tree=False).fit_predict(embedding_np)
         temp_df["cluster"] = hdbscan_labels
-        print(temp_df["cluster"].value_counts())
-        output, break_further = self.break_clusters_down(hdbscan_labels, embedding_np, 30)
+        print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
+        output, break_further = self.break_clusters_down(hdbscan_labels, veracities=y_tensor, embeddings=embedding_np, threshold=0.1)
         temp_df["cluster"] = output
-        print(temp_df["cluster"].value_counts())
-        while break_further:
+        print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
+        i = 0
+        while break_further and i < 50:
             print("breaking further...")
-            output, break_further = self.break_clusters_down(temp_df["cluster"], embedding_np, 30)
+            output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np, threshold=0.1)
             # print value counts of output
             temp_df["cluster"] = output
-            print(temp_df["cluster"].value_counts())
+            print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
+            i += 1
 
         temp_df["predicted_veracity"] = [-1] * len(claims) + [metadata["veracity"] for metadata in current_embeddings["metadatas"]]
 
@@ -176,38 +177,46 @@ class ClaimClassifier:
 
         return labels, sds, confidences, temp_df
 
-    def break_clusters_down(self, labels, embeddings: list[list[float]], threshold: int):
+    def break_clusters_down(self, labels, veracities: list[int], embeddings: list[list[float]], threshold: float):
         labels = labels.tolist()
         # If there is any label with count greater than threshold except -1, run hdbscan on that cluster. Return the new labels
         label_counts = Counter(labels)
         change_needed = False
         for label, count in label_counts.items():
-            if label != -1 and count > threshold:
-                change_needed = True
-                # Get the embeddings of the claims with the label
-                embeddings_with_label = [embeddings[i] for i in range(len(embeddings)) if labels[i] == label]
+            if label != -1:
+                # Get the veracities of the claims with the label
+                veracities_with_label = [veracities[i] for i in range(len(veracities)) if labels[i] == label]
+                # Calculate the percentage of veracity true (3) and false (1)
+                veracity_counts = Counter(veracities_with_label)
+                total = len(veracities_with_label)
+                number_to_predict = veracity_counts.get(-1, 0)
+                if number_to_predict == total:
+                    number_to_predict = 0
+                percent_true = (veracity_counts.get(3, 0) / (total - number_to_predict)) * 100
 
-                # Run hdbscan on the embeddings
-                hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
-                                                 prediction_data=True, approx_min_span_tree=False).fit_predict(embeddings_with_label)
-
-                # Convert hdbscan_labels to a list
-                hdbscan_labels = hdbscan_labels.tolist()
-
-                max_label_current = max(labels)
-                print(max_label_current)
-                new_labels = []
-                for orig_label in hdbscan_labels:
-                    if orig_label != -1:
-                        new_labels.append(orig_label + max_label_current + 1)
-                    else:
-                        new_labels.append(-1)
-
-                # Update the labels with the new labels. If the label number already exists in labels, assign a new label number
-                for i in range(len(labels)):
-                    if labels[i] == label:
-                        labels[i] = new_labels[0]
-                        new_labels = new_labels[1:]
+                if (percent_true < 0.5 and percent_true > 1 - threshold) or (percent_true >= 0.5 and percent_true < threshold) or count > 1000000:
+                    change_needed = True
+                    # Get the embeddings of the claims with the label
+                    embeddings_with_label = [embeddings[i] for i in range(len(embeddings)) if labels[i] == label]
+                    # Run hdbscan on the embeddings
+                    hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size,
+                                                     min_samples=self.min_samples, cluster_selection_method='leaf',
+                                                     prediction_data=True, approx_min_span_tree=False).fit_predict(embeddings_with_label)
+                    # Convert hdbscan_labels to a list
+                    hdbscan_labels = hdbscan_labels.tolist()
+                    max_label_current = max(labels)
+                    print(max_label_current)
+                    new_labels = []
+                    for orig_label in hdbscan_labels:
+                        if orig_label != -1:
+                            new_labels.append(orig_label + max_label_current + 1)
+                        else:
+                            new_labels.append(-1)
+                    # Update the labels with the new labels. If the label number already exists in labels, assign a new label number
+                    for i in range(len(labels)):
+                        if labels[i] == label:
+                            labels[i] = new_labels[0]
+                            new_labels = new_labels[1:]
 
         return labels, change_needed
 
@@ -278,7 +287,7 @@ class ClaimClassifier:
             claims = set(cluster_df[claim_col].tolist())
             if len(claims) == 0:
                 if batch_mode:
-                    labels.append(4)
+                    labels.append(5)
                     sds.append(0)
                     confidences_final.append(1)
                     output_df.at[index, "predicted_veracity"] = 5
