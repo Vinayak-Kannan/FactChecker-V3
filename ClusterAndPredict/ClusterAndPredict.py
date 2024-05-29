@@ -186,7 +186,7 @@ class ClusterAndPredict:
             if value == 4 and cluster != -1:
                 raise ValueError("Cluster should be -1 if predicted value is 4")
 
-            if value != 4:
+            if value == 1 or value == 3:
                 accuracy_not_including_fours_values_count_total += 1
                 if self.actual_veracities[i] == value:
                     accuracy_not_including_fours_values_count_correct += 1

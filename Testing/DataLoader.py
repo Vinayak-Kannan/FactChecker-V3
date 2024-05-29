@@ -44,7 +44,7 @@ class DataLoader():
         self.card_data['Numerical Rating'] = 1
         self.card_data = self.card_data.dropna(subset=['Text'])
         self.card_data = self.card_data[self.card_data['Text'] != '']
-        self.card_data = self.card_data[self.card_data['score'] > 0.8]
+        self.card_data = self.card_data[self.card_data['score'] >= 0.8]
         self.card_data = self.card_data.drop_duplicates(subset=['Text'])
         self.card_data['Synthetic'] = [False for i in range(len(self.card_data))]
 
@@ -87,7 +87,7 @@ class DataLoader():
             card_data_new = pd.concat([card_data_new, self.card_data.sample()])
             card_data_new = card_data_new.drop_duplicates()
 
-        self.card_data = card_data_new
+        # self.card_data = card_data_new
         # Filter to rows where 'Numerical Rating' is 1 or 3
         self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
 
@@ -116,9 +116,24 @@ class DataLoader():
             objects.append(self.ground_truth)
         if use_ground_truth and use_card_data:
             objects.append(self.ground_truth)
+        if use_ground_truth and use_epa_data and use_card_data:
+            # Randomly sample 100 rows from card_data
+            sample_new = self.card_data.sample(n=3500)
+            sample_new['Numerical Rating'] = 1
+            objects = []
+            objects.append(sample_new)
+            objects.append(self.ground_truth)
+            objects.append(self.epa_who_data)
+
+
         train_df = pd.concat(objects, ignore_index=True)
         # Select random sample of 80% such that there is an even distribution of 1s and 3s
         test_df = train_df.groupby('Numerical Rating').apply(lambda x: x.sample(frac=0.2)).reset_index(drop=True)
+        # Drop the rows in test_df from train_df
+        train_df = train_df[~train_df.index.isin(test_df.index)]
+        # Drop duplicates in text column
+        train_df = train_df.drop_duplicates(subset=['Text'])
+        test_df = test_df.drop_duplicates(subset=['Text'])
 
         print(train_df['Numerical Rating'].value_counts())
         print(test_df['Numerical Rating'].value_counts())

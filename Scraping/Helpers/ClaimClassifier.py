@@ -103,6 +103,9 @@ class ClaimClassifier:
             list[float], list[float], list[float]):
         temp_df = pd.DataFrame()
 
+        # Drop duplicates in claims
+        claims = list(set(claims))
+
         claims_embeddings = []
         for claim in claims:
             claims_embeddings.append(EmbeddingObject.embed_claim_to_predict(claim, get_reduced_dimesions=False))
@@ -111,9 +114,27 @@ class ClaimClassifier:
         current_embeddings = self.og_collection.get(include=['embeddings', 'documents', 'metadatas'])
         current_embeddings_predict = np.array(current_embeddings['embeddings'])
 
-        temp_df["text"] = claims + [metadata["claim"] for metadata in current_embeddings["metadatas"]]
-        temp_df["veracity"] = [-1] * len(claims) + [metadata["veracity"] for metadata in current_embeddings["metadatas"]]
-        temp_df["predict"] = [True] * len(claims) + [False] * len(current_embeddings["metadatas"])
+        old_claims = [metadata["claim"] for metadata in current_embeddings["metadatas"]]
+        old_veracity = [metadata["veracity"] for metadata in current_embeddings["metadatas"]]
+        old_predict = [False] * len(old_claims)
+
+        # Find indices of old_claims that are in claims and drop from old_claims, old_veracity, old_predict
+        indices_to_drop = []
+        for i, claim in enumerate(old_claims):
+            if claim in claims:
+                indices_to_drop.append(i)
+        old_claims = [old_claims[i] for i in range(len(old_claims)) if i not in indices_to_drop]
+        old_veracity = [old_veracity[i] for i in range(len(old_veracity)) if i not in indices_to_drop]
+        old_predict = [old_predict[i] for i in range(len(old_predict)) if i not in indices_to_drop]
+        current_embeddings_predict = np.delete(current_embeddings_predict, indices_to_drop, axis=0)
+
+        temp_df["text"] = claims + old_claims
+        temp_df["veracity"] = [-1 for _ in range(len(claims))] + old_veracity
+        temp_df["predict"] = [True for _ in range(len(claims))] + old_predict
+        temp_df["predicted_veracity"] = [-1 for _ in range(len(claims))] + old_veracity
+
+        # Drop duplicates in text column in temp_df
+        temp_df = temp_df.drop_duplicates(subset=["text"])
 
         claims_embeddings = np.array(claims_embeddings)
         # claims_embeddings = np.squeeze(claims_embeddings, axis=1)
@@ -149,28 +170,28 @@ class ClaimClassifier:
         temp_df["embeddings"] = embedding_np.tolist()
 
         hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
-                                         prediction_data=True, cluster_selection_method='leaf',
+                                         prediction_data=True,
                                          approx_min_span_tree=False).fit_predict(embedding_np)
         temp_df["cluster"] = hdbscan_labels
         print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
-        output, break_further = self.break_clusters_down(hdbscan_labels, veracities=y_tensor, embeddings=embedding_np, threshold=0.1)
+        output, break_further = self.break_clusters_down(hdbscan_labels, veracities=y_tensor, embeddings=embedding_np, threshold=0.5)
         temp_df["cluster"] = output
         print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
         i = 0
         while break_further and i < 50:
             print("breaking further...")
-            output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np, threshold=0.1)
+            output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np, threshold=0.5)
             # print value counts of output
             temp_df["cluster"] = output
             print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
             i += 1
 
-        temp_df["predicted_veracity"] = [-1] * len(claims) + [metadata["veracity"] for metadata in current_embeddings["metadatas"]]
-
         # Filter temp_df where predict is False
         temp_df_no_predictions = temp_df[temp_df["predict"] == False]
         print("Number of clusters: " + str(len(temp_df_no_predictions["cluster"].value_counts())))
 
+        # Drop duplicates in text column in temp_df
+        temp_df = temp_df.drop_duplicates(subset=["text"])
         labels, sds, confidences, temp_df = self.__run_knn(temp_df, "text", "cluster", "predict", k,
                                                   use_weightage, batch_mode=True)
 
@@ -178,7 +199,8 @@ class ClaimClassifier:
         return labels, sds, confidences, temp_df
 
     def break_clusters_down(self, labels, veracities: list[int], embeddings: list[list[float]], threshold: float):
-        labels = labels.tolist()
+        if not isinstance(labels, list):
+            labels = labels.tolist()
         # If there is any label with count greater than threshold except -1, run hdbscan on that cluster. Return the new labels
         label_counts = Counter(labels)
         change_needed = False
@@ -192,7 +214,7 @@ class ClaimClassifier:
                 number_to_predict = veracity_counts.get(-1, 0)
                 if number_to_predict == total:
                     number_to_predict = 0
-                percent_true = (veracity_counts.get(3, 0) / (total - number_to_predict)) * 100
+                percent_true = (veracity_counts.get(3, 0) / (total - number_to_predict))
 
                 if (percent_true < 0.5 and percent_true > 1 - threshold) or (percent_true >= 0.5 and percent_true < threshold) or count > 1000000:
                     change_needed = True
@@ -200,7 +222,7 @@ class ClaimClassifier:
                     embeddings_with_label = [embeddings[i] for i in range(len(embeddings)) if labels[i] == label]
                     # Run hdbscan on the embeddings
                     hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size,
-                                                     min_samples=self.min_samples, cluster_selection_method='leaf',
+                                                     min_samples=self.min_samples,
                                                      prediction_data=True, approx_min_span_tree=False).fit_predict(embeddings_with_label)
                     # Convert hdbscan_labels to a list
                     hdbscan_labels = hdbscan_labels.tolist()
