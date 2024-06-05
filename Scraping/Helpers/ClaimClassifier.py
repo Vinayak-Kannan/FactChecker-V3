@@ -99,8 +99,10 @@ class ClaimClassifier:
 
         return mean, sd, confidence
 
-    def classify_v2_batch(self, claims: list[str], EmbeddingObject: Embedder, k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool) -> (
+    def classify_v2_batch(self, claims: list[str], EmbeddingObject: Embedder, k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float, break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
             list[float], list[float], list[float]):
+        np.random.seed(seed)
+
         temp_df = pd.DataFrame()
 
         # Drop duplicates in claims
@@ -140,55 +142,56 @@ class ClaimClassifier:
         # claims_embeddings = np.squeeze(claims_embeddings, axis=1)
         embedding_np = np.concatenate((claims_embeddings, current_embeddings_predict), axis=0)
 
-        reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
-                            random_state=23 if Embedder.random_seed else None, n_jobs=1)
+        if use_umap:
+            reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
+                                random_state=seed, n_jobs=1)
 
-        y_tensor = temp_df["veracity"].astype(int).tolist()
-        if parametric_umap:
-            encoder = keras.Sequential([
-                keras.layers.InputLayer(input_shape=(3072, )),
-                keras.layers.Dense(units=256, activation="relu"),
-                keras.layers.Dense(units=256, activation="relu"),
-                keras.layers.Dense(units=self.num_components),
-            ])
-            encoder.summary()
-            reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
-            embedding_np = tf.convert_to_tensor(embedding_np)
-            y_tensor = tf.convert_to_tensor(y_tensor)
-
-        if supervised_umap:
-            embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
+            y_tensor = temp_df["veracity"].astype(int).tolist()
             if parametric_umap:
-                print(reducer._history)
-                fig, ax = plt.subplots()
-                ax.plot(reducer._history['loss'])
-                ax.set_ylabel('Cross Entropy')
-                ax.set_xlabel('Epoch')
-        else:
-            embedding_np = reducer.fit_transform(embedding_np)
+                encoder = keras.Sequential([
+                    keras.layers.InputLayer(input_shape=(3072, )),
+                    keras.layers.Dense(units=256, activation="relu"),
+                    keras.layers.Dense(units=256, activation="relu"),
+                    keras.layers.Dense(units=self.num_components),
+                ])
+                encoder.summary()
+                reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
+                embedding_np = tf.convert_to_tensor(embedding_np)
+                y_tensor = tf.convert_to_tensor(y_tensor)
+
+            if supervised_umap:
+                embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
+                if parametric_umap:
+                    print(reducer._history)
+                    fig, ax = plt.subplots()
+                    ax.plot(reducer._history['loss'])
+                    ax.set_ylabel('Cross Entropy')
+                    ax.set_xlabel('Epoch')
+            else:
+                embedding_np = reducer.fit_transform(embedding_np)
 
         temp_df["embeddings"] = embedding_np.tolist()
 
-        hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
-                                         prediction_data=True,
-                                         approx_min_span_tree=False).fit_predict(embedding_np)
-        temp_df["cluster"] = hdbscan_labels
-        print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
-        output, break_further = self.break_clusters_down(hdbscan_labels, veracities=y_tensor, embeddings=embedding_np, threshold=0.5)
-        temp_df["cluster"] = output
-        print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
-        i = 0
-        while break_further and i < 50:
-            print("breaking further...")
-            output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np, threshold=0.5)
-            # print value counts of output
-            temp_df["cluster"] = output
+        if use_hdbscan:
+            hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
+                                             approx_min_span_tree=False).fit_predict(embedding_np)
+            temp_df["cluster"] = hdbscan_labels
             print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
-            i += 1
+            output = hdbscan_labels
+            i = 0
+            while break_further and i < 50:
+                print("breaking further...")
+                output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np, threshold=threshold_break)
+                # print value counts of output
+                temp_df["cluster"] = output
+                print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
+                i += 1
 
-        # Filter temp_df where predict is False
-        temp_df_no_predictions = temp_df[temp_df["predict"] == False]
-        print("Number of clusters: " + str(len(temp_df_no_predictions["cluster"].value_counts())))
+            # Filter temp_df where predict is False
+            temp_df_no_predictions = temp_df[temp_df["predict"] == False]
+            print("Number of clusters: " + str(len(temp_df_no_predictions["cluster"].value_counts())))
+        else:
+            temp_df["cluster"] = [1 for _ in range(len(temp_df))]
 
         # Drop duplicates in text column in temp_df
         temp_df = temp_df.drop_duplicates(subset=["text"])
@@ -223,7 +226,7 @@ class ClaimClassifier:
                     # Run hdbscan on the embeddings
                     hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size,
                                                      min_samples=self.min_samples,
-                                                     prediction_data=True, approx_min_span_tree=False).fit_predict(embeddings_with_label)
+                                                     approx_min_span_tree=False).fit_predict(embeddings_with_label)
                     # Convert hdbscan_labels to a list
                     hdbscan_labels = hdbscan_labels.tolist()
                     max_label_current = max(labels)

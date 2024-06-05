@@ -30,6 +30,10 @@ class ClusterAndPredict:
                  claim_column_name: str = 'Text',
                  veracity_column_name: str = 'Numerical Rating',
                  parametric_umap: bool = False,
+                 threshold_break: float = 0.8,
+                 break_further: bool = True,
+                 random_seed_val: int = 23,
+                 use_hdbscan: bool = True,
                  train_df: pd.DataFrame = pd.DataFrame()):
         self.train_text = None
         self.EmbedderObject = None
@@ -50,6 +54,8 @@ class ClusterAndPredict:
         self.supervised_label_column_name = supervised_label_column_name
         self.use_weightage = use_weightage
         self.parametric_umap = parametric_umap
+        self.random_seed_val = random_seed_val
+        self.use_hdbscan = use_hdbscan
 
         self.chroma_client = chromadb.PersistentClient(
             path="/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Clustering/Chroma")
@@ -87,6 +93,10 @@ class ClusterAndPredict:
         self.percentage_70_confidence = 0
         self.percentage_60_confidence = 0
 
+        # Recursive Breaking
+        self.threshold_break = threshold_break
+        self.break_further = break_further
+
         # OpenAI
         api_key = os.getenv("OPEN_AI_KEY")
         self.client = OpenAI(api_key=api_key)
@@ -101,6 +111,8 @@ class ClusterAndPredict:
             'no_umap': self.no_umap,
             'claim_column_name': self.claim_column_name,
             'veracity_column_name': self.veracity_column_name,
+            'threshold_break': self.threshold_break,
+            'break_further': self.break_further,
             'train_df': self.train_df
         }
 
@@ -139,7 +151,13 @@ class ClusterAndPredict:
                                                                                                                  self.k,
                                                                                                                  self.use_weightage,
                                                                                                                  self.supervised_umap,
-                                                                                                                 self.parametric_umap)
+                                                                                                                 self.parametric_umap,
+                                                                                                                 self.threshold_break,
+                                                                                                                 self.break_further,
+                                                                                                                 self.random_seed_val,
+                                                                                                                 self.use_hdbscan,
+                                                                                                                 not self.no_umap
+                                                                                                                 )
         self.clusters_df = cluster_df
         # for i, claim in enumerate(X):
         #     mean, sd, confidence = ClaimClassifierObject.classify_v2(claim, self.EmbedderObject, 1, 0.8, False, self.k, self.use_weightage)
@@ -166,7 +184,7 @@ class ClusterAndPredict:
         # print(self.predicted_means.count(5))
         self.accuracy = self.calculate_accuracy(self.clusters_df)
         self.accuracy_not_including_fours = self.calculate_accuracy_excluding_no_predict(self.clusters_df)
-        self.percentage_of_fours = self.calculate_percentage_of_four_and_five(self.clusters_df)
+        self.percentage_of_fours, self.percentage_of_no_clusters_in_ground_truth = self.calculate_percentage_of_four_and_five(self.clusters_df)
 
 
         for i, value in enumerate(self.predicted_means):
@@ -289,7 +307,7 @@ class ClusterAndPredict:
             'percentage_80_confidence': self.percentage_80_confidence,
             'percentage_70_confidence': self.percentage_70_confidence,
             'percentage_60_confidence': self.percentage_60_confidence,
-            'cluster_df': self.clusters_df,
+            # 'cluster_df': self.clusters_df,
         }
 
     def plot_confidence_histogram(self) -> None:
@@ -416,28 +434,33 @@ class ClusterAndPredict:
         cluster_df = cluster_df[cluster_df['predict']]
 
         for _, row in cluster_df.iterrows():
-            if row['veracity'] == row['predicted_veracity']:
+            if int(row['veracity']) == int(row['predicted_veracity']):
                 num_correct += 1
 
         if len(cluster_df) == 0:
-            return 0
+            raise ValueError("No claims in cluster_df")
         return num_correct / len(cluster_df)
 
     def calculate_accuracy_excluding_no_predict(self, cluster_df):
         # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
 
         cluster_df = cluster_df[cluster_df['predict']]
-        cluster_df = cluster_df[cluster_df['predicted_veracity'] == 1]
-        cluster_df = cluster_df[cluster_df['predicted_veracity'] == 3]
+        # Filter where predicted veracity equals 1 or 3
+        cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
 
         return self.calculate_accuracy(cluster_df)
 
     def calculate_percentage_of_four_and_five(self, cluster_df):
-        original_length = len(cluster_df)
+        original_cluster_df = cluster_df.copy(deep=True)
         cluster_df = cluster_df[cluster_df['predict']]
-        cluster_df = cluster_df[cluster_df['predicted_veracity'] == 1]
-        cluster_df = cluster_df[cluster_df['predicted_veracity'] == 3]
-        return len(cluster_df) / original_length
+        original_length = len(cluster_df)
+        cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
+
+        original_cluster_df = original_cluster_df[original_cluster_df['predict'] == False]
+        original_length_predict_false = len(original_cluster_df)
+        original_cluster_df = original_cluster_df[original_cluster_df['predicted_veracity'].isin([1, 3])]
+
+        return 1 - (len(cluster_df) / original_length), 1 - (len(original_cluster_df) / original_length_predict_false)
 
     def calculate_precision_recall_for_three(self, cluster_df):
         # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
@@ -462,12 +485,14 @@ class ClusterAndPredict:
         precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
         recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
 
+        if len(cluster_df) == 0:
+            raise ValueError("No claims in cluster_df")
+
         return precision, recall
 
     def calculate_precision_recall_for_three_excluding_no_predict(self, cluster_df):
         # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
         # Filter cluster_df where predict is true and predicted_veracity is 1 or 3
         cluster_df = cluster_df[cluster_df['predict']]
-        cluster_df = cluster_df[cluster_df['predicted_veracity'] == 1]
-        cluster_df = cluster_df[cluster_df['predicted_veracity'] == 3]
+        cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
         return self.calculate_precision_recall_for_three(cluster_df)

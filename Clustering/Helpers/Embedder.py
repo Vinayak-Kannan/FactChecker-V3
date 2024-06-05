@@ -81,6 +81,8 @@ class Embedder:
         target_classify = df[supervised_label_column_name]
         target_classify = np.array(target_classify.astype(int))
 
+        embeddings_reduced = embeddings
+
         if not self.no_umap:
             # Reduce using UMAP
             reducer = umap.UMAP(n_neighbors=self.n_neighbors, min_dist=self.min_dist, n_components=self.num_components,

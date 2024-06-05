@@ -44,7 +44,7 @@ class DataLoader():
         self.card_data['Numerical Rating'] = 1
         self.card_data = self.card_data.dropna(subset=['Text'])
         self.card_data = self.card_data[self.card_data['Text'] != '']
-        self.card_data = self.card_data[self.card_data['score'] >= 0.8]
+        self.card_data = self.card_data[self.card_data['score'] >= 0.65]
         self.card_data = self.card_data.drop_duplicates(subset=['Text'])
         self.card_data['Synthetic'] = [False for i in range(len(self.card_data))]
 
