@@ -13,9 +13,7 @@ from nltk.corpus import stopwords
 from openai import OpenAI
 from pinecone import ServerlessSpec, Pinecone
 from sklearn import metrics
-from sklearn.metrics import mean_squared_error
 
-from Clustering.Helpers.ClusterEmbeddings import ClusterEmbeddings
 from Clustering.Helpers.Embedder import Embedder
 from Scraping.Helpers.ClaimClassifier import ClaimClassifier
 
@@ -107,29 +105,6 @@ class ClusterAndPredict:
 
         self.pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
 
-        # og_collection_name = "climate-claims-" + str(self.time_stamp)
-        # og_collection_name = og_collection_name[:44]
-        # self.og_collection = self.pc.create_index(
-        #   name=og_collection_name,
-        #   dimension=3072,
-        #   metric="cosine",
-        #   spec=ServerlessSpec(
-        #     cloud="aws",
-        #     region="us-east-1"
-        #   )
-        # )
-        #
-        # red_collection_name = "climate-claims-reduced-" + str(self.time_stamp)
-        # red_collection_name = red_collection_name[:44]
-        # self.reduced_collection = self.pc.create_index(
-        #     name=red_collection_name,
-        #     dimension=num_components,
-        #     metric="cosine",
-        #     spec=ServerlessSpec(
-        #         cloud="aws",
-        #         region="us-east-1"
-        #     )
-        # )
 
     def get_params(self, deep=True):
         return {
@@ -151,17 +126,7 @@ class ClusterAndPredict:
             setattr(self, parameter, value)
         return self
 
-    # def __cluster_ground_truth(self):
-    #     self.EmbedderObject.embed_column_ground_truth(df=self.train_df, claim_column_name=self.claim_column_name,
-    #                                                   veracity_column_name=self.veracity_column_name,
-    #                                                   insert_into_collection=True, supervised_umap=self.supervised_umap,
-    #                                                   supervised_label_column_name=self.supervised_label_column_name)
-    #     clustered_data, self.percentage_of_no_clusters_in_ground_truth = self.ClusterEmbeddingsObject.cluster()
-    #     self.ground_truth_df = clustered_data
-
     def fit(self, X: list, y: list):
-        # self.ClusterEmbeddingsObject = ClusterEmbeddings(min_cluster_size=self.min_cluster_size,
-        #                                                  min_samples=self.min_samples, time_stamp=self.time_stamp, num_components=self.num_components)
         self.EmbedderObject = Embedder(n_neighbors=self.n_neighbors, min_dist=self.min_dist,
                                        num_components=self.num_components, no_umap=self.no_umap,
                                        time_stamp=self.time_stamp, random_seed=self.random_seed)
@@ -171,10 +136,6 @@ class ClusterAndPredict:
             path_to_model='../../Clustering/Models/',
             time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
             min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
-        # Loop through the test data and classify each claim
-        # predicted_mean = []
-        # predicted_sd = []
-        # predicted_confidence = []
 
         # cluster_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster
         predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
@@ -191,13 +152,6 @@ class ClusterAndPredict:
          not self.no_umap
         )
         self.clusters_df = cluster_df
-        # for i, claim in enumerate(X):
-        #     mean, sd, confidence = ClaimClassifierObject.classify_v2(claim, self.EmbedderObject, 1, 0.8, False, self.k, self.use_weightage)
-        #     if confidence < 1:
-        #         print(f"Actual: {y[i]}")
-        #     predicted_mean.append(int(mean))
-        #     predicted_sd.append(sd)
-        #     predicted_confidence.append(confidence)
 
         self.predicted_means = predicted_mean
         self.predicted_sds = predicted_sd
@@ -206,14 +160,7 @@ class ClusterAndPredict:
         self.train_text = X
         self.actual_veracities = y
 
-    def score(self, X_test, y_test):
-        # mse = mean_squared_error(self.actual_veracities, self.predicted_means)
-        # accuracy = metrics.accuracy_score(self.actual_veracities, self.predicted_means)
-        # self.chroma_client.delete_collection('climate_claims_' + self.time_stamp)
-        # self.chroma_client.delete_collection('climate_claims_reduced_' + self.time_stamp)
-        # Loop through predicted_means and count the number of 4's
-        # num_of_fours = self.predicted_means.count(4)
-        # print(self.predicted_means.count(5))
+    def score(self, _, __):
         self.accuracy = self.calculate_accuracy(self.clusters_df)
         self.accuracy_not_including_fours = self.calculate_accuracy_excluding_no_predict(self.clusters_df)
         self.percentage_of_fours, self.percentage_of_no_clusters_in_ground_truth = self.calculate_percentage_of_four_and_five(self.clusters_df)

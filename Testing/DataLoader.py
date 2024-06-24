@@ -67,56 +67,11 @@ class DataLoader():
 
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool) -> (
     pd.DataFrame, pd.DataFrame):
-
-        # # Filter card_data where 'Category' is not 0_0
-        # card_data_claim_categories = len(self.card_data['Category'].value_counts())
-        #
-        # num_per_category_needed = 0
-        # if use_epa_data:
-        #     num_per_category_needed = int((self.percentage_false / (1 - self.percentage_false) * len(self.epa_who_data)) // card_data_claim_categories) + 1
-        # elif use_ground_truth:
-        #     ground_truth_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
-        #     ground_truth_true = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 3])
-        #     num_per_category_needed = int(((self.percentage_false / (1 - self.percentage_false) * ground_truth_true) - ground_truth_false) // card_data_claim_categories) + 1
-        #     if num_per_category_needed < 0:
-        #         num_per_category_needed = 0
-        #
-        # card_data_new = self.card_data.groupby('Category').head(num_per_category_needed)
-        # # If len(self.card_data) is less than num_per_category_needed * card_data_claim_categories, then add more
-        # # rows to self.card_data
-        # while num_per_category_needed * card_data_claim_categories > len(card_data_new):
-        #     card_data_new = pd.concat([card_data_new, self.card_data.sample()])
-        #     card_data_new = card_data_new.drop_duplicates()
-
-        # self.card_data = card_data_new
-        # Filter to rows where 'Numerical Rating' is 1 or 3
         self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
 
         # Drop all columns except 'Text' and 'Numerical Rating'
         self.ground_truth = self.ground_truth[['Text', 'Numerical Rating']]
-        # Concat epa_who_data and ground_truth
-        # ground_truth = pd.concat([ground_truth, epa_who_data], ignore_index=True)
-
-        # Print number of 1s and 3s
-        # print(self.ground_truth['Numerical Rating'].value_counts())
-        # print(self.card_data['Numerical Rating'].value_counts())
-        # print(self.epa_who_data['Numerical Rating'].value_counts())
         objects = []
-        if use_card_data:
-            objects.append(self.card_data)
-        if use_epa_data:
-            objects.append(self.epa_who_data)
-        if use_ground_truth and use_epa_data:
-            count_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
-            # while num_per_category_needed * card_data_claim_categories > count_false:
-            #     sample = self.card_data.sample()
-            #     sample['Numerical_Rating'] = [1]
-            #     self.ground_truth = pd.concat([self.ground_truth, sample])
-            #     self.ground_truth = self.ground_truth.drop_duplicates()
-            #     count_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
-            # objects.append(self.ground_truth)
-        if use_ground_truth and use_card_data:
-            objects.append(self.ground_truth)
         if use_ground_truth and use_epa_data and use_card_data:
             # Randomly sample 100 rows from card_data
             sample_new = self.card_data

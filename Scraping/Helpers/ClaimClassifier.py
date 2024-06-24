@@ -28,24 +28,7 @@ class ClaimClassifier:
 
     def __init__(self, EmbeddingObject: Embedder, n_neighbors: int, min_dist: float, num_components: int, path_to_model: str, time_stamp: str,
                  min_cluster_size: int = 5, min_samples: int = 1,):
-        # Look through path_to_model and load model with the latest timestamp in the filename
-        # The files will follow the naming convention hdbscan_model_%Y-%m-%d %H:%M:%S
-        # list_of_files = glob.glob(os.path.join(path_to_model, 'hdbscan_model_*'))
-        # Parse the timestamps from the filenames and find the file with the latest timestamp with .pkl extension
-        # latest_file = max(list_of_files, key=lambda x: datetime.strptime(x.split('_')[-1], '%Y-%m-%d %H:%M:%S.pkl'))
-        # Load the model from the file
-        # self.model = load(path_to_model + 'hdbscan_model_' + time_stamp + '.pkl')
         self.EmbeddingObject = EmbeddingObject
-        # self.og_collection = self.pc.Index("climate-claims-" + time_stamp)
-        # self.reduced_collection = self.pc.Index("climate-claims-reduced-" + time_stamp)
-
-        # self.reduced_collection = self.chroma_client.get_or_create_collection(
-        #     name="climate_claims_reduced_" + time_stamp,
-        # )
-        # self.og_collection = self.chroma_client.get_or_create_collection(
-        #     name="climate_claims_" + time_stamp,
-        #     metadata={"hnsw:space": "cosine"}
-        # )
 
         self.min_cluster_size = min_cluster_size
         self.min_samples = min_samples
@@ -54,65 +37,6 @@ class ClaimClassifier:
         self.min_dist = min_dist
         self.num_components = num_components
 
-    # def classify_v2(self, claim: str, EmbeddingObject: Embedder, threshold: float, claim_check_threshold: float,
-    #                 show_graph: bool, k: int, use_weightage: bool) -> (float, float, float):
-    #     if threshold < claim_check_threshold:
-    #         return None, None
-    #
-    #     np.random.seed(11)
-    #     temp_df = pd.DataFrame()
-    #     temp_df["text"] = [claim]
-    #     temp_df["veracity"] = [0]
-    #     claims_embeddings = EmbeddingObject.embed_claim_to_predict(claim, get_reduced_dimesions=False)
-    #
-    #     # Get the current embeddings from reduced_collection
-    #     query_og = self.og_collection.query(
-    #         vector=[0] * self.num_components,
-    #         top_k=9999,
-    #         include_values=True,
-    #         include_metadata=True,
-    #     )['matches']
-    #     current_embeddings_predict = []
-    #     for i in range(len(query_og)):
-    #         current_embeddings_predict.append(query_og[i]['values'])
-    #
-    #     # current_embeddings = self.og_collection.get(include=['embeddings', 'documents', 'metadatas'])
-    #
-    #     reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
-    #                         random_state=23 if Embedder.random_seed else None, n_jobs=1)
-    #     embedding_np = np.concatenate((np.array([claims_embeddings]), current_embeddings_predict), axis=0)
-    #     embedding_np = reducer.fit_transform(embedding_np)
-    #
-    #     # Create a dataframe from the embeddings
-    #     claims = [claim]
-    #     veracities = [0]
-    #     predict = [True]
-    #     for metadata in current_embeddings["metadatas"]:
-    #         claims.append(metadata["claim"])
-    #         veracities.append(metadata["veracity"])
-    #         predict.append(False)
-    #
-    #     embeddings = []
-    #     for embedding in embedding_np:
-    #         embeddings.append(embedding)
-    #
-    #     output_df = pd.DataFrame()
-    #     output_df["embeddings"] = embeddings
-    #     output_df["text"] = claims
-    #     output_df["veracity"] = veracities
-    #     output_df["predict"] = predict
-    #
-    #     hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
-    #                                      prediction_data=True,
-    #                                      approx_min_span_tree=False).fit_predict(embeddings)
-    #     output_df["cluster"] = hdbscan_labels
-    #
-    #     if show_graph:
-    #         self.__create_classify_graph_v2(output_df)
-    #
-    #     mean, sd, confidence = self.__run_knn(output_df, "text", "cluster", "predict", k, use_weightage)
-    #
-    #     return mean, sd, confidence
 
     def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float, break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
             list[float], list[float], list[float]):
@@ -126,16 +50,6 @@ class ClaimClassifier:
         claims_embeddings = []
         for claim in claims:
             claims_embeddings.append(self.EmbeddingObject.embed_claim_to_predict(claim, get_reduced_dimesions=False))
-        #
-        # # Get the current embeddings from reduced_collection
-        # query_og = self.og_collection.query(
-        #     vector=[0] * 3072,
-        #     top_k=9999,
-        #     include_values=True,
-        #     include_metadata=True,
-        # )['matches']
-        # # current_embeddings = self.og_collection.get(include=['embeddings', 'documents', 'metadatas'])
-        # current_embeddings_predict = [query_og[i]['values'] for i in range(len(query_og))]
 
         old_claims = train_df['Text'].tolist()
         old_veracity = train_df['Numerical Rating'].tolist()
@@ -351,31 +265,6 @@ class ClaimClassifier:
             claim_test = [cluster_data.iloc[i][claim_col] for i in range(len(cluster_data))]
             veracities = [cluster_data.iloc[i][veracity_col] for i in range(len(cluster_data))]
             embeddings = [cluster_data.iloc[i][embedding_col] for i in range(len(cluster_data))]
-
-            # Get embeddings from chroma
-            # cluster_data = self.reduced_collection.get(ids=claims, include=['embeddings', 'documents', 'metadatas'])
-            # cluster_data = self.reduced_collection.query(
-            #     vector=[0] * self.num_components,
-            #     top_k=9999,
-            #     include_values=True,
-            #     include_metadata=True,
-            # )['matches']
-            # for i, claim in enumerate(claims):
-            #     claims[i] = self.EmbeddingObject.format_text(claim)
-            # claim_data = self.reduced_collection.fetch(ids=claims)['vectors']
-            # cluster_data = []
-            # for _, claim_data in claim_data.items():
-            #     cluster_data.append(claim_data)
-
-            # claim_test = [cluster_data[i]['metadata']['claim'] for i in range(len(cluster_data))]
-            # veracities = [cluster_data[i]['metadata']['veracity'] for i in range(len(cluster_data))]
-            # embeddings = [cluster_data[i]['values'] for i in range(len(cluster_data))]
-
-
-            # Extract embeddings from the cluster data
-            # claim_test = [data['claim'] for data in cluster_data['metadatas']]
-            # veracities = [data['veracity'] for data in cluster_data['metadatas']]
-            # embeddings = [data for data in cluster_data['embeddings']]
 
             # Create a KNN model
             k_neighbor_value = min(k, len(embeddings))

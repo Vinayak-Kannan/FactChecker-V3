@@ -20,8 +20,6 @@ class ClusterEmbeddings:
     pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
 
     def __init__(self, min_cluster_size: int, min_samples: int, time_stamp: str, num_components: int):
-        # self.og_collection = self.pc.Index("climate-claims-" + time_stamp)
-        # self.reduced_collection = self.pc.Index("climate-claims-reduced-" + time_stamp)
 
         self.min_cluster_size = min_cluster_size
         self.min_samples = min_samples
@@ -51,10 +49,6 @@ class ClusterEmbeddings:
         query_original_claims = [query_original[i]['id'] for i in range(len(query_original))]
         query_original_veracity = [query_original[i]['metadata']['veracity'] for i in range(len(query_original))]
 
-        # query_original: FetchResponse = self.reduced_collection.query(
-        #     ids=[text])['vectors']
-        # reduced_collection = self.reduced_collection.get(include=['embeddings', 'documents', 'metadatas'])
-        # Cluster the embeddings using HDBSCAN
         hdbscan_object = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples, prediction_data=True, approx_min_span_tree=False).fit(query_reduced_vectors)
         hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples, prediction_data=True, approx_min_span_tree=False).fit_predict(query_reduced_vectors)
         # pickle the hdbscan object
