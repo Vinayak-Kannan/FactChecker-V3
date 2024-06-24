@@ -3,12 +3,13 @@ import numpy as np
 
 
 class DataLoader():
-    def __init__(self, percentage_false: float):
-        np.random.seed(seed=23)
+    def __init__(self, percentage_false: float, verbose: bool = False, random_seed: int = 23):
+        self.verbose = verbose
+        np.random.seed(seed=random_seed)
         self.percentage_false = percentage_false
         # Ground Truth
         self.ground_truth = pd.read_csv(
-            "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/VK's Copy of Cleaned - Google Fact Check Explorer - Climate.xlsx - Corrected.csv")
+            "../../Clustering/Raw Data/Climate/VKs Copy of Cleaned - Google Fact Check Explorer - Climate.xlsx - Corrected.csv")
         self.ground_truth = self.ground_truth.dropna(subset=['Text'])
         self.ground_truth = self.ground_truth[self.ground_truth['Text'] != '']
         self.ground_truth = self.ground_truth.drop_duplicates(subset=['Text'])
@@ -16,7 +17,7 @@ class DataLoader():
 
         # EPA
         self.epa_who_data = pd.read_csv(
-            "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/climate_change_epa_who.csv")
+            "../../Clustering/Raw Data/Climate/climate_change_epa_who.csv")
         self.epa_who_data['Category'] = -1
         self.epa_who_data['Numerical Rating'] = 3
         self.epa_who_data = self.epa_who_data.dropna(subset=['Text'])
@@ -26,7 +27,7 @@ class DataLoader():
 
 
         self.epa_who_data_negated = pd.read_csv(
-            "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Negated Claims/negated_epa_data.csv")
+            "../../Clustering/Raw Data/Climate/Negated Claims/negated_epa_data.csv")
         self.epa_who_data_negated['Category'] = -1
         self.epa_who_data_negated['Numerical Rating'] = 1
         self.epa_who_data_negated = self.epa_who_data_negated.rename(columns={'text': 'Text'})
@@ -37,20 +38,20 @@ class DataLoader():
 
         # Card Data
         self.card_data = pd.read_csv(
-            "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/card_train_with_score.csv")
+            "../../Clustering/Raw Data/Climate/card_train_with_score.csv")
         self.card_data['claim'] = '1_1'
         self.card_data = self.card_data.rename(columns={'text': 'Text', 'claim': 'Category'})
         # To the card_data, add a 'Numerical Rating' column with value 1
         self.card_data['Numerical Rating'] = 1
         self.card_data = self.card_data.dropna(subset=['Text'])
         self.card_data = self.card_data[self.card_data['Text'] != '']
-        self.card_data = self.card_data[self.card_data['score'] >= 0.65]
+        self.card_data = self.card_data[self.card_data['score'] >= 0.8]
         self.card_data = self.card_data.drop_duplicates(subset=['Text'])
         self.card_data['Synthetic'] = [False for i in range(len(self.card_data))]
 
 
         self.card_data_negated = pd.read_csv(
-            "/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Negated Claims/negated_card_data_score_over_0.7.csv")
+            "../../Clustering/Raw Data/Climate/Negated Claims/negated_card_data_score_over_0.7.csv")
         self.card_data_negated['claim'] = '1_1'
         self.card_data_negated = self.card_data_negated.rename(columns={'text': 'Text', 'claim': 'Category'})
         # To the card_data, add a 'Numerical Rating' column with value 1
@@ -67,25 +68,25 @@ class DataLoader():
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool) -> (
     pd.DataFrame, pd.DataFrame):
 
-        # Filter card_data where 'Category' is not 0_0
-        card_data_claim_categories = len(self.card_data['Category'].value_counts())
-
-        num_per_category_needed = 0
-        if use_epa_data:
-            num_per_category_needed = int((self.percentage_false / (1 - self.percentage_false) * len(self.epa_who_data)) // card_data_claim_categories) + 1
-        elif use_ground_truth:
-            ground_truth_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
-            ground_truth_true = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 3])
-            num_per_category_needed = int(((self.percentage_false / (1 - self.percentage_false) * ground_truth_true) - ground_truth_false) // card_data_claim_categories) + 1
-            if num_per_category_needed < 0:
-                num_per_category_needed = 0
-
-        card_data_new = self.card_data.groupby('Category').head(num_per_category_needed)
-        # If len(self.card_data) is less than num_per_category_needed * card_data_claim_categories, then add more
-        # rows to self.card_data
-        while num_per_category_needed * card_data_claim_categories > len(card_data_new):
-            card_data_new = pd.concat([card_data_new, self.card_data.sample()])
-            card_data_new = card_data_new.drop_duplicates()
+        # # Filter card_data where 'Category' is not 0_0
+        # card_data_claim_categories = len(self.card_data['Category'].value_counts())
+        #
+        # num_per_category_needed = 0
+        # if use_epa_data:
+        #     num_per_category_needed = int((self.percentage_false / (1 - self.percentage_false) * len(self.epa_who_data)) // card_data_claim_categories) + 1
+        # elif use_ground_truth:
+        #     ground_truth_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
+        #     ground_truth_true = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 3])
+        #     num_per_category_needed = int(((self.percentage_false / (1 - self.percentage_false) * ground_truth_true) - ground_truth_false) // card_data_claim_categories) + 1
+        #     if num_per_category_needed < 0:
+        #         num_per_category_needed = 0
+        #
+        # card_data_new = self.card_data.groupby('Category').head(num_per_category_needed)
+        # # If len(self.card_data) is less than num_per_category_needed * card_data_claim_categories, then add more
+        # # rows to self.card_data
+        # while num_per_category_needed * card_data_claim_categories > len(card_data_new):
+        #     card_data_new = pd.concat([card_data_new, self.card_data.sample()])
+        #     card_data_new = card_data_new.drop_duplicates()
 
         # self.card_data = card_data_new
         # Filter to rows where 'Numerical Rating' is 1 or 3
@@ -107,22 +108,24 @@ class DataLoader():
             objects.append(self.epa_who_data)
         if use_ground_truth and use_epa_data:
             count_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
-            while num_per_category_needed * card_data_claim_categories > count_false:
-                sample = self.card_data.sample()
-                sample['Numerical_Rating'] = [1]
-                self.ground_truth = pd.concat([self.ground_truth, sample])
-                self.ground_truth = self.ground_truth.drop_duplicates()
-                count_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
-            objects.append(self.ground_truth)
+            # while num_per_category_needed * card_data_claim_categories > count_false:
+            #     sample = self.card_data.sample()
+            #     sample['Numerical_Rating'] = [1]
+            #     self.ground_truth = pd.concat([self.ground_truth, sample])
+            #     self.ground_truth = self.ground_truth.drop_duplicates()
+            #     count_false = len(self.ground_truth[self.ground_truth['Numerical Rating'] == 1])
+            # objects.append(self.ground_truth)
         if use_ground_truth and use_card_data:
             objects.append(self.ground_truth)
         if use_ground_truth and use_epa_data and use_card_data:
             # Randomly sample 100 rows from card_data
-            sample_new = self.card_data.sample(n=3500)
+            sample_new = self.card_data
             sample_new['Numerical Rating'] = 1
             objects = []
             objects.append(sample_new)
             objects.append(self.ground_truth)
+            # Sample percentage false number of rows for epa_who_data
+            self.epa_who_data = self.epa_who_data.sample(frac=self.percentage_false)
             objects.append(self.epa_who_data)
 
 
@@ -135,8 +138,9 @@ class DataLoader():
         train_df = train_df.drop_duplicates(subset=['Text'])
         test_df = test_df.drop_duplicates(subset=['Text'])
 
-        print(train_df['Numerical Rating'].value_counts())
-        print(test_df['Numerical Rating'].value_counts())
+        if self.verbose:
+            print(train_df['Numerical Rating'].value_counts())
+            print(test_df['Numerical Rating'].value_counts())
         return train_df, test_df
 
     def create_large_train_test_df(self, remove_synthetic_data: bool) -> (pd.DataFrame, pd.DataFrame):
@@ -184,16 +188,17 @@ class DataLoader():
             train_df = train_df[train_df['Synthetic'] == False]
             test_df = test_df[test_df['Synthetic'] == False]
 
-        print(train_df['Numerical Rating'].value_counts())
-        print(test_df['Numerical Rating'].value_counts())
+        if self.verbose:
+            print(train_df['Numerical Rating'].value_counts())
+            print(test_df['Numerical Rating'].value_counts())
 
         return train_df, test_df
 
     def create_matched_large_df(self, only_use_synthetic: bool) -> (pd.DataFrame, pd.DataFrame):
-        card = pd.read_csv('/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Cleaned/card')
-        epa = pd.read_csv('/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/Cleaned/epa')
+        card = pd.read_csv('../../Clustering/Raw Data/Climate/Cleaned/card.csv')
+        epa = pd.read_csv('../../Clustering/Raw Data/Climate/Cleaned/epa.csv')
 
-        # Pick half of the rows from card and epa
+        # Pick half of the rows from card.csv and epa.csv
         card_train = card.sample(frac=0.5)
         card_test = card[~card.index.isin(card_train.index)]
         epa_train = epa.sample(frac=0.5)
@@ -236,8 +241,9 @@ class DataLoader():
             test_df = test_df[test_df['Synthetic'] == True]
 
         # Print value counts
-        print(train_df['Numerical Rating'].value_counts())
-        print(test_df['Numerical Rating'].value_counts())
+        if self.verbose:
+            print(train_df['Numerical Rating'].value_counts())
+            print(test_df['Numerical Rating'].value_counts())
 
         return train_df, test_df
 

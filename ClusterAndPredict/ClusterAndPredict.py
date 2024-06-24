@@ -11,6 +11,7 @@ from gensim.corpora import Dictionary
 from gensim.models import TfidfModel
 from nltk.corpus import stopwords
 from openai import OpenAI
+from pinecone import ServerlessSpec, Pinecone
 from sklearn import metrics
 from sklearn.metrics import mean_squared_error
 
@@ -58,7 +59,7 @@ class ClusterAndPredict:
         self.use_hdbscan = use_hdbscan
 
         self.chroma_client = chromadb.PersistentClient(
-            path="/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Clustering/Chroma")
+            path="./../../Clustering/Clustering/Chroma")
 
         # Randomly split the data into train and test
         self.train_df = train_df  # df.sample(frac=self.train_percentage, replace=False, random_state=23)
@@ -71,6 +72,9 @@ class ClusterAndPredict:
         # Create uuid
         unique_uuid = uuid.uuid4()
         self.time_stamp = str(unique_uuid)
+        # Filter out non-numeric values in uuid
+        self.time_stamp = ''.join(filter(lambda x: x.isdigit(), self.time_stamp))
+
 
         # Performance Metrics
         self.accuracy = 0
@@ -101,6 +105,32 @@ class ClusterAndPredict:
         api_key = os.getenv("OPEN_AI_KEY")
         self.client = OpenAI(api_key=api_key)
 
+        self.pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
+
+        # og_collection_name = "climate-claims-" + str(self.time_stamp)
+        # og_collection_name = og_collection_name[:44]
+        # self.og_collection = self.pc.create_index(
+        #   name=og_collection_name,
+        #   dimension=3072,
+        #   metric="cosine",
+        #   spec=ServerlessSpec(
+        #     cloud="aws",
+        #     region="us-east-1"
+        #   )
+        # )
+        #
+        # red_collection_name = "climate-claims-reduced-" + str(self.time_stamp)
+        # red_collection_name = red_collection_name[:44]
+        # self.reduced_collection = self.pc.create_index(
+        #     name=red_collection_name,
+        #     dimension=num_components,
+        #     metric="cosine",
+        #     spec=ServerlessSpec(
+        #         cloud="aws",
+        #         region="us-east-1"
+        #     )
+        # )
+
     def get_params(self, deep=True):
         return {
             'min_cluster_size': self.min_cluster_size,
@@ -121,23 +151,24 @@ class ClusterAndPredict:
             setattr(self, parameter, value)
         return self
 
-    def __cluster_ground_truth(self):
-        self.EmbedderObject.embed_column_ground_truth(df=self.train_df, claim_column_name=self.claim_column_name,
-                                                      veracity_column_name=self.veracity_column_name,
-                                                      insert_into_collection=True, supervised_umap=self.supervised_umap,
-                                                      supervised_label_column_name=self.supervised_label_column_name)
-        clustered_data, self.percentage_of_no_clusters_in_ground_truth = self.ClusterEmbeddingsObject.cluster()
-        self.ground_truth_df = clustered_data
+    # def __cluster_ground_truth(self):
+    #     self.EmbedderObject.embed_column_ground_truth(df=self.train_df, claim_column_name=self.claim_column_name,
+    #                                                   veracity_column_name=self.veracity_column_name,
+    #                                                   insert_into_collection=True, supervised_umap=self.supervised_umap,
+    #                                                   supervised_label_column_name=self.supervised_label_column_name)
+    #     clustered_data, self.percentage_of_no_clusters_in_ground_truth = self.ClusterEmbeddingsObject.cluster()
+    #     self.ground_truth_df = clustered_data
 
     def fit(self, X: list, y: list):
-        self.ClusterEmbeddingsObject = ClusterEmbeddings(min_cluster_size=self.min_cluster_size,
-                                                         min_samples=self.min_samples, time_stamp=self.time_stamp)
+        # self.ClusterEmbeddingsObject = ClusterEmbeddings(min_cluster_size=self.min_cluster_size,
+        #                                                  min_samples=self.min_samples, time_stamp=self.time_stamp, num_components=self.num_components)
         self.EmbedderObject = Embedder(n_neighbors=self.n_neighbors, min_dist=self.min_dist,
                                        num_components=self.num_components, no_umap=self.no_umap,
                                        time_stamp=self.time_stamp, random_seed=self.random_seed)
-        self.__cluster_ground_truth()
+        # self.__cluster_ground_truth()
         ClaimClassifierObject = ClaimClassifier(
-            path_to_model='/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Models/',
+            EmbeddingObject=self.EmbedderObject,
+            path_to_model='../../Clustering/Models/',
             time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
             min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
         # Loop through the test data and classify each claim
@@ -146,18 +177,19 @@ class ClusterAndPredict:
         # predicted_confidence = []
 
         # cluster_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster
-        predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(X,
-                                                                                                                 self.EmbedderObject,
-                                                                                                                 self.k,
-                                                                                                                 self.use_weightage,
-                                                                                                                 self.supervised_umap,
-                                                                                                                 self.parametric_umap,
-                                                                                                                 self.threshold_break,
-                                                                                                                 self.break_further,
-                                                                                                                 self.random_seed_val,
-                                                                                                                 self.use_hdbscan,
-                                                                                                                 not self.no_umap
-                                                                                                                 )
+        predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
+         self.train_df,
+         X,
+         self.k,
+         self.use_weightage,
+         self.supervised_umap,
+         self.parametric_umap,
+         self.threshold_break,
+         self.break_further,
+         self.random_seed_val,
+         self.use_hdbscan,
+         not self.no_umap
+        )
         self.clusters_df = cluster_df
         # for i, claim in enumerate(X):
         #     mean, sd, confidence = ClaimClassifierObject.classify_v2(claim, self.EmbedderObject, 1, 0.8, False, self.k, self.use_weightage)
@@ -307,7 +339,7 @@ class ClusterAndPredict:
             'percentage_80_confidence': self.percentage_80_confidence,
             'percentage_70_confidence': self.percentage_70_confidence,
             'percentage_60_confidence': self.percentage_60_confidence,
-            # 'cluster_df': self.clusters_df,
+            'cluster_df': self.clusters_df,
         }
 
     def plot_confidence_histogram(self) -> None:

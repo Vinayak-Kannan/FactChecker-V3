@@ -8,8 +8,8 @@
 .idea/
 .DS_Store
 ~/Desktop/Projects/FactChecker/.gitREAL
-/Clustering/Raw Data/Climate/Cleaned/card
-/Clustering/Raw Data/Climate/Cleaned/epa
-/Clustering/Raw Data/Climate/Cleaned/negated_card
-/Clustering/Raw Data/Climate/Cleaned/negated_epa
+/Clustering/Raw Data/Climate/Cleaned/card.csv
+/Clustering/Raw Data/Climate/Cleaned/epa.csv
+/Clustering/Raw Data/Climate/Cleaned/negated_card.csv
+/Clustering/Raw Data/Climate/Cleaned/negated_epa.csv
 /Testing/Test Output/50_threshold_v3.numbers
