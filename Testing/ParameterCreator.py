@@ -13,7 +13,7 @@ class ParameterCreator:
             'min_samples': [5],
             'n_neighbors': [int(train_df.shape[0] - 2)],
             'min_dist': [0],
-            'num_components': [2],
+            'num_components': [2, 100],
             'no_umap': [False],
             'parametric_umap': [False],
             'claim_column_name': ['Text'],

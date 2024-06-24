@@ -40,7 +40,8 @@ Details for each stage of the pipeline are as follows:
 - Using these clusters, we then perform weighted KNN for each claim that we want to predict the veracity for; this algorithm is detailed in Figure B. Note that the hyperparameter K in our weighted KNN is set to include all the claims within the test claim’s individual cluster. Afterward, we return both the predicted veracity label and the associated cluster for the test claim to the user. This provides an explainable logic to the user, detailing that our system believes the user’s claim is true / false due to its similarity to other claims with the same veracity label
 
 ## How to use this repository:
-1. Create a venv and install the requirements.txt file. Use python version 3.11
+1. Ask Vin to join the Pinecone Organization. Get API keys for both Pinecone, OpenAI, ClaimBuster, and Reddit to fill out .env file in root of project
+2. Create a venv and install the requirements.txt file. Use python version 3.11
 2. Navigate to hyperparameter_selection and run all the cells to begin an experiment
 3. To adjust the parameters in the experiment, go to ParameterCreator.py and add values to the arrays. This class creates parameters to assist with grid search
 4. The hyperparameter_selection code will output the results or each experiment in a table in the last cell. Download this table to view the results
