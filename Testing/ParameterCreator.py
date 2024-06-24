@@ -9,24 +9,35 @@ class ParameterCreator:
         train_df, test_df = data_loader.create_train_test_df(True, True, True)
 
         vals = {
-            'min_cluster_size': [5],
-            'min_samples': [5],
-            'n_neighbors': [int(train_df.shape[0] - 2)],
-            'min_dist': [0],
-            'num_components': [2, 100],
+            # HDBSCAN parameters
+            'min_cluster_size': [3, 5, 25, 50],
+            'min_samples': [3, 5, 25, 50],
+            'use_hdbscan': [True, False],
+
+            # UMAP parameters
+            'n_neighbors': [int(train_df.shape[0] - 2), int(train_df.shape[0] * 0.5), int(train_df.shape[0] * 0.1)],
+            'min_dist': [0, 0.1, 0.2],
+            'num_components': [2, 50, 100, 300],
+
+            # UMAP options
             'no_umap': [False],
             'parametric_umap': [False],
+            'supervised_umap': [True],
+
+            # Data column specifications
             'claim_column_name': ['Text'],
             'veracity_column_name': ['Numerical Rating'],
             'supervised_label_column_name': ['Numerical Rating'],
-            'random_seed': [True],
+
+            # Random seed options
+            'random_seed': [True, False],
+            'random_seed_val': [23, 42],
+
+            # Other pipeline options
             'use_weightage': [True],
             'k': [15000],
-            'random_seed_val': [23],
-            'threshold_break': [0.9],
+            'threshold_break': [0.7, 0.8, 0.9, 0.95],
             'break_further': [True],
-            'use_hdbscan': [True],
-            'supervised_umap': [True],
         }
 
         # Generate all combinations of parameter values

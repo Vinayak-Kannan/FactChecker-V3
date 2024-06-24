@@ -257,14 +257,14 @@ class ClusterAndPredict:
         print('Average confidence for 3: ', self.average_confidence_for_3)
         print(f'Precision on veracity 3 excluding 4s: {self.precision_on_three_excluding_fours}')
         print(f'Recall on veracity 3 excluding 4s: {self.recall_on_three_excluding_fours}')
-        print(f'Accuracy at 90% confidence: {self.accuracy_90_confidence}')
-        print(f'Accuracy at 80% confidence: {self.accuracy_80_confidence}')
-        print(f'Accuracy at 70% confidence: {self.accuracy_70_confidence}')
-        print(f'Accuracy at 60% confidence: {self.accuracy_60_confidence}')
-        print(f'Percentage of 90% confidence: {self.percentage_90_confidence}')
-        print(f'Percentage of 80% confidence: {self.percentage_80_confidence}')
-        print(f'Percentage of 70% confidence: {self.percentage_70_confidence}')
-        print(f'Percentage of 60% confidence: {self.percentage_60_confidence}')
+        # print(f'Accuracy at 90% confidence: {self.accuracy_90_confidence}')
+        # print(f'Accuracy at 80% confidence: {self.accuracy_80_confidence}')
+        # print(f'Accuracy at 70% confidence: {self.accuracy_70_confidence}')
+        # print(f'Accuracy at 60% confidence: {self.accuracy_60_confidence}')
+        # print(f'Percentage of 90% confidence: {self.percentage_90_confidence}')
+        # print(f'Percentage of 80% confidence: {self.percentage_80_confidence}')
+        # print(f'Percentage of 70% confidence: {self.percentage_70_confidence}')
+        # print(f'Percentage of 60% confidence: {self.percentage_60_confidence}')
 
     def get_all_performance_metrics(self) -> object:
         self.score([], [])
@@ -278,14 +278,14 @@ class ClusterAndPredict:
             'average_confidence_for_3': self.average_confidence_for_3,
             'precision_on_three_excluding_fours': self.precision_on_three_excluding_fours,
             'recall_on_three_excluding_fours': self.recall_on_three_excluding_fours,
-            'accuracy_90_confidence': self.accuracy_90_confidence,
-            'accuracy_80_confidence': self.accuracy_80_confidence,
-            'accuracy_70_confidence': self.accuracy_70_confidence,
-            'accuracy_60_confidence': self.accuracy_60_confidence,
-            'percentage_90_confidence': self.percentage_90_confidence,
-            'percentage_80_confidence': self.percentage_80_confidence,
-            'percentage_70_confidence': self.percentage_70_confidence,
-            'percentage_60_confidence': self.percentage_60_confidence,
+            # 'accuracy_90_confidence': self.accuracy_90_confidence,
+            # 'accuracy_80_confidence': self.accuracy_80_confidence,
+            # 'accuracy_70_confidence': self.accuracy_70_confidence,
+            # 'accuracy_60_confidence': self.accuracy_60_confidence,
+            # 'percentage_90_confidence': self.percentage_90_confidence,
+            # 'percentage_80_confidence': self.percentage_80_confidence,
+            # 'percentage_70_confidence': self.percentage_70_confidence,
+            # 'percentage_60_confidence': self.percentage_60_confidence,
             'cluster_df': self.clusters_df,
         }
 
