@@ -57,7 +57,9 @@ class Embedder:
         if query_original and len(query_original.keys()) > 0:
             return np.array(query_original[text]['values'])
         else:
-            raise ValueError("Had to create embedding...")
+            result = self.client.embeddings.create(input=[text], model=model).data[0].embedding
+            return np.array(result)
+            # raise ValueError("Had to create embedding...")
             # This code is commented out to prevent the creation of embeddings. This may be needed in the future.
             # embedding_collection_old = self.chroma_client.get_collection(
             #     name="climate_claims_embeddings_unchanged"

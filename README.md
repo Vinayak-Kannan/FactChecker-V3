@@ -2,10 +2,6 @@
 
 ## Authors: Vinayak (Vin) Kannan
 
-to do's
-- replace absolute file references with relative file references
-- figure out a way to share local chromadb and add to to-do's
-
 ## Description:
 This repository contains the code for an explainable fact-checking system.
 Our method is detailed below:

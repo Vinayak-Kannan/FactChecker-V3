@@ -10,14 +10,14 @@ class ParameterCreator:
 
         vals = {
             # HDBSCAN parameters
-            'min_cluster_size': [3, 5, 25, 50],
-            'min_samples': [3, 5, 25, 50],
-            'use_hdbscan': [True, False],
+            'min_cluster_size': [5],
+            'min_samples': [5],
+            'use_hdbscan': [True],
 
             # UMAP parameters
-            'n_neighbors': [int(train_df.shape[0] - 2), int(train_df.shape[0] * 0.5), int(train_df.shape[0] * 0.1)],
-            'min_dist': [0, 0.1, 0.2],
-            'num_components': [2, 50, 100, 300],
+            'n_neighbors': [int(train_df.shape[0] - 2)],
+            'min_dist': [0],
+            'num_components': [100],
 
             # UMAP options
             'no_umap': [False],
@@ -30,13 +30,13 @@ class ParameterCreator:
             'supervised_label_column_name': ['Numerical Rating'],
 
             # Random seed options
-            'random_seed': [True, False],
-            'random_seed_val': [23, 42],
+            'random_seed': [True],
+            'random_seed_val': [23],
 
             # Other pipeline options
             'use_weightage': [True],
             'k': [15000],
-            'threshold_break': [0.7, 0.8, 0.9, 0.95],
+            'threshold_break': [0.9],
             'break_further': [True],
         }
 
