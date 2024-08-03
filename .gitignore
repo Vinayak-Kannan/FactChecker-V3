@@ -13,3 +13,5 @@
 /Clustering/Raw Data/Climate/Cleaned/negated_card.csv
 /Clustering/Raw Data/Climate/Cleaned/negated_epa.csv
 /Testing/Test Output/50_threshold_v3.numbers
+!/Clustering/Raw Data/Climate/VKs Copy of Cleaned - Google Fact Check Explorer - Climate.xlsx - Corrected.csv
+*.pyc
