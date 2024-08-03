@@ -2,7 +2,6 @@ import os
 import uuid
 from operator import itemgetter
 
-import chromadb
 import gensim
 import nltk
 import pandas as pd
@@ -56,8 +55,9 @@ class ClusterAndPredict:
         self.random_seed_val = random_seed_val
         self.use_hdbscan = use_hdbscan
 
-        self.chroma_client = chromadb.PersistentClient(
-            path="./../../Clustering/Clustering/Chroma")
+        # self.chroma_client = chromadb.PersistentClient(
+        #     path="./../../Clustering/Clustering/Chroma")
+        self.chroma_client = None
 
         # Randomly split the data into train and test
         self.train_df = train_df  # df.sample(frac=self.train_percentage, replace=False, random_state=23)

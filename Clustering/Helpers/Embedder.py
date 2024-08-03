@@ -8,7 +8,6 @@ import umap
 from joblib import load
 from openai import OpenAI
 import pandas as pd
-import chromadb
 from tqdm import tqdm
 from dotenv import load_dotenv
 import os
@@ -23,8 +22,9 @@ class Embedder:
     random_seed = None
     api_key = os.getenv("OPEN_AI_KEY")
     client = OpenAI(api_key=api_key)
-    chroma_client = chromadb.PersistentClient(
-        path="/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Clustering/Chroma")
+    # chroma_client = chromadb.PersistentClient(
+    #     path="/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Clustering/Chroma")
+    chroma_client = None
     pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
 
     # Get a collection object from an existing collection, by name. If it doesn't exist, create it.

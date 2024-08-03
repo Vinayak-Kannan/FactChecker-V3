@@ -3,7 +3,6 @@ import glob
 from collections import Counter
 from datetime import datetime
 
-import chromadb
 import numpy as np
 import umap
 from matplotlib import pyplot as plt
@@ -23,8 +22,9 @@ from tensorflow.python.keras.layers import Dense
 class ClaimClassifier:
     model = None
     pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
-    chroma_client = chromadb.PersistentClient(
-        path="./../../Clustering/Clustering/Chroma")
+    # chroma_client = chromadb.PersistentClient(
+    #     path="./../../Clustering/Clustering/Chroma")
+    chroma_client = None
 
     def __init__(self, EmbeddingObject: Embedder, n_neighbors: int, min_dist: float, num_components: int, path_to_model: str, time_stamp: str,
                  min_cluster_size: int = 5, min_samples: int = 1,):
@@ -112,6 +112,7 @@ class ClaimClassifier:
         temp_df["embeddings"] = embedding_np.tolist()
 
         # Upload to pinecone db
+        print("Starting upload to pinecone...")
         for i, row in temp_df.iterrows():
             cleaned_claim_id = self.EmbeddingObject.clean_text_to_id(row["text"])
             self.embedding_collection_reduced.upsert(
@@ -124,6 +125,8 @@ class ClaimClassifier:
                     }
                 }],
             )
+            if i % 50 == 0:
+                print(f"Uploaded {i} claims to pinecone out of length {len(temp_df)}")
 
         if use_hdbscan:
             hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
