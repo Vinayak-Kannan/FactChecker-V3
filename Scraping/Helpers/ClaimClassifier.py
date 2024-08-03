@@ -36,6 +36,7 @@ class ClaimClassifier:
         self.n_neighbors = n_neighbors
         self.min_dist = min_dist
         self.num_components = num_components
+        self.embedding_collection_reduced = self.pc.Index("factchecker-reduced")
 
 
     def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float, break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
@@ -109,6 +110,20 @@ class ClaimClassifier:
                 embedding_np = reducer.fit_transform(embedding_np)
 
         temp_df["embeddings"] = embedding_np.tolist()
+
+        # Upload to pinecone db
+        for i, row in temp_df.iterrows():
+            cleaned_claim_id = self.EmbeddingObject.clean_text_to_id(row["text"])
+            self.embedding_collection_reduced.upsert(
+                vectors=[{
+                    "id": cleaned_claim_id,
+                    "values": row['embeddings'],
+                    "metadata": {
+                        "claim": row["text"],
+                        "veracity": int(row["veracity"])
+                    }
+                }],
+            )
 
         if use_hdbscan:
             hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,

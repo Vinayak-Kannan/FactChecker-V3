@@ -22,7 +22,7 @@ class ParameterCreator:
             # UMAP options
             'no_umap': [False],
             'parametric_umap': [False],
-            'supervised_umap': [True],
+            'supervised_umap': [False],
 
             # Data column specifications
             'claim_column_name': ['Text'],
@@ -37,7 +37,7 @@ class ParameterCreator:
             'use_weightage': [True],
             'k': [15000],
             'threshold_break': [0.9],
-            'break_further': [True],
+            'break_further': [False],
         }
 
         # Generate all combinations of parameter values

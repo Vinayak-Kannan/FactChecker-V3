@@ -132,3 +132,8 @@ class Embedder:
     def embed_claim_to_predict(self, claim: str, get_reduced_dimesions: bool) -> np.ndarray:
         if not get_reduced_dimesions or self.no_umap:
             return self.__get_embedding(claim)
+
+    def clean_text_to_id(self, text: str) -> str:
+        text = text.replace(" ", "_")
+        text = text[:500]
+        return text
