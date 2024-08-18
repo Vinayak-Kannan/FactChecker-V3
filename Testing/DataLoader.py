@@ -97,7 +97,7 @@ class DataLoader():
             print(train_df['Numerical Rating'].value_counts())
             print(test_df['Numerical Rating'].value_counts())
 
-        test_data = pd.read_csv('/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Raw Data/Climate/test_data_06_26 - Sheet1.csv')
+        test_data = pd.read_csv('../../Clustering/Raw Data/Climate/test_data_06_26 - Sheet1.csv')
         test_data['Numerical Rating'] = test_data['Numerical Rating'].astype(int)
         test_data['Synthetic'] = [False for i in range(len(test_data))]
         test_data = test_data.drop_duplicates(subset=['Text'])
