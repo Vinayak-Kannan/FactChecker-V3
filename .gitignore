@@ -17,4 +17,5 @@
 !/Clustering/Raw Data/Climate/climate_change_epa_who.csv
 !/Clustering/Raw Data/Climate/Negated Claims/negated_epa_data.csv
 !/Clustering/Raw Data/Climate/Negated Claims/card_train_with_score.csv
+!/Clustering/Raw Data/Climate/Negated Claims/negated_card_data_score_over_0.7.csv
 *.pyc
