@@ -1,4 +1,4 @@
-text,veracity,predict
+Text,Numerical Rating,predict
 "These measurements show no net increase in the sun’s output, even as global surface temperatures have risen.",3,TRUE
 "A Fox News guest disparaged teenage climate activist Greta Thunberg by calling her ""mentally ill.""",3,TRUE
 "Film actor and activist Jane Fonda said, ""There'd be no climate crisis if it wasn't for racism.""",3,TRUE
