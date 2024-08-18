@@ -5,7 +5,7 @@ from itertools import product
 class ParameterCreator:
     def __init__(self):
         self.parameters = {}
-        data_loader = DataLoader(1, False, 23)
+        data_loader = DataLoader(0.75, False, 23)
         train_df, test_df = data_loader.create_train_test_df(True, True, True)
 
         vals = {

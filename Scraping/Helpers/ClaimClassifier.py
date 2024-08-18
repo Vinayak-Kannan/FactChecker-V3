@@ -112,21 +112,21 @@ class ClaimClassifier:
         temp_df["embeddings"] = embedding_np.tolist()
 
         # Upload to pinecone db
-        print("Starting upload to pinecone...")
-        for i, row in temp_df.iterrows():
-            cleaned_claim_id = self.EmbeddingObject.clean_text_to_id(row["text"])
-            self.embedding_collection_reduced.upsert(
-                vectors=[{
-                    "id": cleaned_claim_id,
-                    "values": row['embeddings'],
-                    "metadata": {
-                        "claim": row["text"],
-                        "veracity": int(row["veracity"])
-                    }
-                }],
-            )
-            if i % 50 == 0:
-                print(f"Uploaded {i} claims to pinecone out of length {len(temp_df)}")
+        # print("Starting upload to pinecone...")
+        # for i, row in temp_df.iterrows():
+        #     cleaned_claim_id = self.EmbeddingObject.format_text(row["text"])
+        #     self.embedding_collection_reduced.upsert(
+        #         vectors=[{
+        #             "id": cleaned_claim_id,
+        #             "values": row['embeddings'],
+        #             "metadata": {
+        #                 "claim": row["text"],
+        #                 "veracity": int(row["veracity"])
+        #             }
+        #         }],
+        #     )
+        #     if i % 50 == 0:
+        #         print(f"Uploaded {i} claims to pinecone out of length {len(temp_df)}")
 
         if use_hdbscan:
             hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,

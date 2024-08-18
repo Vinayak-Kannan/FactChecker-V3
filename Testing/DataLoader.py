@@ -64,7 +64,6 @@ class DataLoader():
         self.card_data_negated = self.card_data_negated.drop_duplicates(subset=['Text'])
         self.card_data_negated['Synthetic'] = [True for i in range(len(self.card_data_negated))]
 
-
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool) -> (
     pd.DataFrame, pd.DataFrame):
         self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
@@ -73,6 +72,10 @@ class DataLoader():
         self.ground_truth = self.ground_truth[['Text', 'Numerical Rating']]
         objects = []
         if use_ground_truth and use_epa_data and use_card_data:
+            ground_truth_ones_count = self.ground_truth['Numerical Rating'].value_counts().get(1, 0)
+            card_data_ones_count = self.card_data['Numerical Rating'].value_counts().get(1, 0)
+            number_of_total_false = ground_truth_ones_count + card_data_ones_count
+            number_of_true = int((1 - self.percentage_false) * number_of_total_false / self.percentage_false)
             # Randomly sample 100 rows from card_data
             sample_new = self.card_data
             sample_new['Numerical Rating'] = 1
@@ -80,7 +83,7 @@ class DataLoader():
             objects.append(sample_new)
             objects.append(self.ground_truth)
             # Sample percentage false number of rows for epa_who_data
-            self.epa_who_data = self.epa_who_data.sample(frac=self.percentage_false)
+            self.epa_who_data = self.epa_who_data.sample(n=min(number_of_true, len(self.epa_who_data)))
             objects.append(self.epa_who_data)
 
 
