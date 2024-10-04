@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import KFold
 
 
 class DataLoader():
@@ -63,8 +64,10 @@ class DataLoader():
         self.card_data_negated = self.card_data_negated[self.card_data_negated['score'] >= 0.8]
         self.card_data_negated = self.card_data_negated.drop_duplicates(subset=['Text'])
         self.card_data_negated['Synthetic'] = [True for i in range(len(self.card_data_negated))]
-
-    def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool) -> (
+        
+	# FEVER
+        self.FEVER_data = pd.read_csv("../../LLMTesting/fever_data.csv")
+    def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool, use_card: bool, percentage_data_to_use: float = 1.0) -> (
     pd.DataFrame, pd.DataFrame):
         self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
 
@@ -85,9 +88,12 @@ class DataLoader():
             # Sample percentage false number of rows for epa_who_data
             self.epa_who_data = self.epa_who_data.sample(n=min(number_of_true, len(self.epa_who_data)))
             objects.append(self.epa_who_data)
-
+    
+        if use_card:
+            objects.append(self.FEVER_data)
 
         train_df = pd.concat(objects, ignore_index=True)
+        train_df = train_df.sample(frac=percentage_data_to_use)
         # Select random sample of 80% such that there is an even distribution of 1s and 3s
         test_df = train_df.groupby('Numerical Rating').apply(lambda x: x.sample(frac=0.2)).reset_index(drop=True)
         # Drop the rows in test_df from train_df
@@ -211,4 +217,17 @@ class DataLoader():
 
         return train_df, test_df
 
+    def create_cv_folds(self, train_df, test_df, n_splits=5, shuffle=True, random_state=23):
+        # Concat train and test dataframes
+        df = pd.concat([train_df, test_df], ignore_index=True)
+
+        kf = KFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
+        folds = []
+        
+        for train_index, test_index in kf.split(df):
+            train_df = df.iloc[train_index]
+            test_df = df.iloc[test_index]
+            folds.append((train_df, test_df))
+        
+        return folds
 

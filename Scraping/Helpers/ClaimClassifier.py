@@ -39,25 +39,41 @@ class ClaimClassifier:
         self.embedding_collection_reduced = self.pc.Index("factchecker-reduced")
 
 
-    def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float, break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
+    def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], claims_veracity: list[int], k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float, break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
             list[float], list[float], list[float]):
         np.random.seed(seed)
 
         temp_df = pd.DataFrame()
 
-        # Drop duplicates in claims
-        claims = list(set(claims))
-        #
+
+        print("Getting embeddings...")
         claims_embeddings = []
-        for claim in claims:
-            claims_embeddings.append(self.EmbeddingObject.embed_claim_to_predict(claim, get_reduced_dimesions=False))
+        claims_embeddings = self.EmbeddingObject.embed_claims_batch(claims, claims_veracity)
+        # for i, claim in enumerate(claims):
+        #     claims_embeddings.append(self.EmbeddingObject.embed_claim_to_predict(claim, get_reduced_dimesions=False, veracity=claims_veracity[i]))
+
+        # Drop duplicates in claims and indices of duplicated in claims_embeddings
+        unique_claims = []
+        unique_embeddings = []
+        seen = set()
+
+        for claim, embedding in zip(claims, claims_embeddings):
+            if claim not in seen:
+                seen.add(claim)
+                unique_claims.append(claim)
+                unique_embeddings.append(embedding)
+
+        # Update claims and claims_embeddings
+        claims = unique_claims
+        claims_embeddings = unique_embeddings
+        
 
         old_claims = train_df['Text'].tolist()
         old_veracity = train_df['Numerical Rating'].tolist()
         old_predict = [False] * len(old_claims)
         current_embeddings_predict = []
-        for i in range(len(old_claims)):
-            current_embeddings_predict.append(self.EmbeddingObject.embed_claim_to_predict(old_claims[i], get_reduced_dimesions=False))
+        current_embeddings_predict = self.EmbeddingObject.embed_claims_batch(old_claims, old_veracity)
+            # current_embeddings_predict.append(self.EmbeddingObject.embed_claim_to_predict(old_claims[i], get_reduced_dimesions=False, veracity=old_veracity[i]))
 
         # Find indices of old_claims that are in claims and drop from old_claims, old_veracity, old_predict [likely not needed]
         indices_to_drop = []
@@ -87,6 +103,7 @@ class ClaimClassifier:
 
             y_tensor = temp_df["veracity"].astype(int).tolist()
             if parametric_umap:
+                print("Running parametric supervised umap...")
                 encoder = keras.Sequential([
                     keras.layers.InputLayer(input_shape=(3072, )),
                     keras.layers.Dense(units=256, activation="relu"),
@@ -99,14 +116,17 @@ class ClaimClassifier:
                 y_tensor = tf.convert_to_tensor(y_tensor)
 
             if supervised_umap:
+                print("Running supervised umap...")
                 embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
                 if parametric_umap:
+                    print("Running parametric supervised umap...")
                     print(reducer._history)
                     fig, ax = plt.subplots()
                     ax.plot(reducer._history['loss'])
                     ax.set_ylabel('Cross Entropy')
                     ax.set_xlabel('Epoch')
             else:
+                print("Running unsupervised umap...")
                 embedding_np = reducer.fit_transform(embedding_np)
 
         temp_df["embeddings"] = embedding_np.tolist()
@@ -129,10 +149,10 @@ class ClaimClassifier:
         #         print(f"Uploaded {i} claims to pinecone out of length {len(temp_df)}")
 
         if use_hdbscan:
+            print("Running hdbscan...")
             hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
                                              approx_min_span_tree=False).fit_predict(embedding_np)
             temp_df["cluster"] = hdbscan_labels
-            print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
             output = hdbscan_labels
             i = 0
             while break_further and i < 50:

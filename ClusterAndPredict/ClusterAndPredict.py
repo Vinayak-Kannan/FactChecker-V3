@@ -18,6 +18,12 @@ from Scraping.Helpers.ClaimClassifier import ClaimClassifier
 
 load_dotenv()
 
+"""
+1 - False
+3 - True
+4 - No prediction
+5 - Predicts fell into their own cluster only. No predicts
+"""
 
 class ClusterAndPredict:
     def __init__(self, min_cluster_size: int = 5, min_samples: int = 1, n_neighbors: int = 200, min_dist: float = 0,
@@ -33,6 +39,7 @@ class ClusterAndPredict:
                  random_seed_val: int = 23,
                  use_hdbscan: bool = True,
                  train_df: pd.DataFrame = pd.DataFrame()):
+        pd.set_option('future.no_silent_downcasting', True)
         self.train_text = None
         self.EmbedderObject = None
         self.ClusterEmbeddingsObject = None
@@ -84,6 +91,13 @@ class ClusterAndPredict:
         self.recall_on_three = 0
         self.precision_on_three_excluding_fours = 0
         self.recall_on_three_excluding_fours = 0
+        self.precision_on_one = 0
+        self.recall_on_one = 0
+        self.precision_on_one_excluding_fours = 0
+        self.recall_on_one_excluding_fours = 0
+        self.precision = 0
+        self.recall = 0
+        self.precision_no_fours, self.recall_no_fours = 0, 0
         self.average_confidence_for_3 = 0
 
         self.accuracy_90_confidence = 0
@@ -127,6 +141,7 @@ class ClusterAndPredict:
         return self
 
     def fit(self, X: list, y: list):
+        
         self.EmbedderObject = Embedder(n_neighbors=self.n_neighbors, min_dist=self.min_dist,
                                        num_components=self.num_components, no_umap=self.no_umap,
                                        time_stamp=self.time_stamp, random_seed=self.random_seed)
@@ -137,10 +152,12 @@ class ClusterAndPredict:
             time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
             min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
 
+        print("Fitting")
         # cluster_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster
         predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
          self.train_df,
          X,
+         y,
          self.k,
          self.use_weightage,
          self.supervised_umap,
@@ -178,8 +195,8 @@ class ClusterAndPredict:
             value = self.clusters_df.loc[self.clusters_df['text'] == claim, 'predicted_veracity'].values[0]
             self.clusters_df.loc[self.clusters_df['text'] == claim, 'veracity'] = self.actual_veracities[i]
             # Note, we use 5 for claims where they are to be predicted and clustered on themselves in the df
-            if value == 4 and cluster != -1:
-                raise ValueError("Cluster should be -1 if predicted value is 4")
+            # if value == 4 and cluster != -1:
+            #     raise ValueError("Cluster should be -1 if predicted value is 4")
 
 
         # Fill in cluster accuracy and number wrong in clusters_df
@@ -198,13 +215,12 @@ class ClusterAndPredict:
         self.clusters_df['cluster_accuracy'] = self.clusters_df['cluster_accuracy'].replace([float('inf'), float('nan')], 1)
 
         # clusters_df columsn - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
-        precision, recall = self.calculate_precision_recall_for_three(self.clusters_df)
-        self.precision_on_three = precision
-        self.recall_on_three = recall
-
-        precision_no_fours, recall_no_fours = self.calculate_precision_recall_for_three_excluding_no_predict(self.clusters_df)
-        self.precision_on_three_excluding_fours = precision_no_fours
-        self.recall_on_three_excluding_fours = recall_no_fours
+        self.precision_on_three, self.recall_on_three = self.calculate_precision_recall_for_a_value(self.clusters_df, 3)
+        self.precision_on_one, self.recall_on_one = self.calculate_precision_recall_for_a_value(self.clusters_df, 1)
+        self.precision, self.recall = self.calculate_precision_recall(self.clusters_df)
+        self.precision_on_three_excluding_fours, self.recall_on_three_excluding_fours = self.calculate_precision_recall_for_three_excluding_no_predict(self.clusters_df)
+        self.precision_on_one_excluding_fours, self.recall_on_one_excluding_fours = self.calculate_precision_recall_for_one_excluding_no_predict(self.clusters_df)
+        self.precision_no_fours, self.recall_no_fours = self.calculate_weighted_precision_recall_excluding_no_predict(self.clusters_df)
 
         # Store confidence scores and report accuracy based on confidence. 5 means confidence not high enough
         predictions_90_confidence = []
@@ -278,6 +294,14 @@ class ClusterAndPredict:
             'average_confidence_for_3': self.average_confidence_for_3,
             'precision_on_three_excluding_fours': self.precision_on_three_excluding_fours,
             'recall_on_three_excluding_fours': self.recall_on_three_excluding_fours,
+            'precision_on_one': self.precision_on_one,
+            'recall_on_one': self.recall_on_one,
+            'precision_on_one_excluding_fours': self.precision_on_one_excluding_fours,
+            'recall_on_one_excluding_fours': self.recall_on_one_excluding_fours,
+            'precision': self.precision,
+            'recall': self.recall,
+            'precision_no_fours': self.precision_no_fours,
+            'recall_no_fours': self.recall_no_fours,
             # 'accuracy_90_confidence': self.accuracy_90_confidence,
             # 'accuracy_80_confidence': self.accuracy_80_confidence,
             # 'accuracy_70_confidence': self.accuracy_70_confidence,
@@ -441,37 +465,121 @@ class ClusterAndPredict:
 
         return 1 - (len(cluster_df) / original_length), 1 - (len(original_cluster_df) / original_length_predict_false)
 
-    def calculate_precision_recall_for_three(self, cluster_df):
-        # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
-        true_positives = 0
-        false_positives = 0
-        false_negatives = 0
+    def calculate_precision_recall_for_a_value(self, cluster_df, value: int):
+        if len(cluster_df) == 0:
+            raise ValueError("No claims in cluster_df")
+        
+        # Replace all 5 in predicted_veracity with 4
+        cluster_df.loc[cluster_df['predicted_veracity'] == 5, 'predicted_veracity'] = 4
 
         # Filter df to where predict is true
         cluster_df = cluster_df[cluster_df['predict']]
+        # Cast veracity and predicted_veracity as int
+        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
+        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        
+        # Filter df to where veracity is value
+        cluster_df = cluster_df[cluster_df['veracity'] == value]
+        # Replace all vlaues where predicted_veracity is 4 with 1 if value is 3 and 3 if value is 1
+        if value == 3:
+            cluster_df.loc[cluster_df['predicted_veracity'] == 4, 'predicted_veracity'] = 1
+        else:
+            cluster_df.loc[cluster_df['predicted_veracity'] == 4, 'predicted_veracity'] = 3
 
-        # Loop through the dataframe
-        for _, row in cluster_df.iterrows():
-            if row['predicted_veracity'] == 3:  # Predicted as 3
-                if row['veracity'] == 3:  # Actual is 3
-                    true_positives += 1
-                else:  # Actual is not 3
-                    false_positives += 1
-            elif row['veracity'] == 3:  # Predicted as not 3 but actual is 3
-                false_negatives += 1
+        # # Check if veracity and predicted_veracity only contain 0 and 1
+        # if not cluster_df['veracity'].isin([1, 0]).all() or not cluster_df['predicted_veracity'].isin([1, 0]).all():
+        #     mapped_values = cluster_df['veracity'].map({1: 0, 3: 1, "1": 0, "3": 1})
+        #     print(cluster_df['veracity'].value_counts())
+        #     cluster_df.loc[:, 'veracity'] = mapped_values.astype(int)
+        #     mapped_values_predicted = cluster_df['predicted_veracity'].map({1: 0, 3: 1, "1": 0, "3": 1})
+        #     print(cluster_df['predicted_veracity'].value_counts())
+        #     cluster_df.loc[:, 'predicted_veracity'] = mapped_values_predicted.astype(int)
+        
+        # pos_value = 0
+        # if value == 3:
+        #     pos_value = 1
 
-        # Calculate precision and recall
-        precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
-        recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
+        # If count of pos_value in veracity is 0, return NaN for precision and recall
+        if cluster_df['veracity'].value_counts().get(value) == None:
+            print("happened")
+            return "No values with this veracity were possible to predict", "No values with this veracity were possible to predict"
+        
+        print("ERROR DEBUG")
+        print(cluster_df['veracity'].value_counts())
+        print(cluster_df['predicted_veracity'].value_counts())
+        precision = metrics.precision_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary', pos_label=value)
+        recall = metrics.recall_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary', pos_label=value)
+        
+        # Get count of true positives
+        true_positives = cluster_df[(cluster_df['veracity'] == value) & (cluster_df['predicted_veracity'] == value)].shape[0]
+        if (precision == 0 or recall == 0):
+            if true_positives == 0:
+                print("sad...")
+                # raise ValueError("Precision or recall is 0 (actually)")
+            else:
+                # Print value counts for veracity and predicted_veracity
+                print("here")
+                print(cluster_df['veracity'].value_counts())
+                print(cluster_df['predicted_veracity'].value_counts())
+                raise ValueError("Precision or recall is 0 (error)")
 
+        return precision, recall
+    
+    def calculate_precision_recall(self, cluster_df):
         if len(cluster_df) == 0:
             raise ValueError("No claims in cluster_df")
+        
+        # Filter df to where predict is true
+        cluster_df = cluster_df[cluster_df['predict']]
+        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
+        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        cluster_df.loc[(cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 3), 'predicted_veracity'] = 1
+        cluster_df.loc[(cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 1), 'predicted_veracity'] = 3
+
+
+        # Check if veracity and predicted_veracity only contain 0 and 1
+        # if not cluster_df['veracity'].isin([1, 0]).all() or not cluster_df['predicted_veracity'].isin([1, 0]).all():
+        #     mapped_values = cluster_df['veracity'].map({1: 0, 3: 1, "1": 0, "3": 1})
+        #     cluster_df.loc[:, 'veracity'] = mapped_values.astype(int)
+        #     mapped_values_predicted = cluster_df['predicted_veracity'].map({1: 0, 3: 1, "1": 0, "3": 1})
+        #     cluster_df.loc[:, 'predicted_veracity'] = mapped_values_predicted.astype(int)
+        
+        precision = metrics.precision_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='weighted')
+        recall = metrics.recall_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='weighted')
+
+        # Get count of true positives where veracity equals predicted_veracity
+        true_positives = cluster_df[(cluster_df['veracity'] == cluster_df['predicted_veracity'])].shape[0]
+        
+        if precision == 0 or recall == 0:
+            if true_positives == 0:
+                print("sad...")
+                # raise ValueError("Precision or recall is 0 (actually)")
+            else:
+                # Print value counts for veracity and predicted_veracity
+                print(cluster_df['veracity'].value_counts())
+                print(cluster_df['predicted_veracity'].value_counts())
+                raise ValueError("Precision or recall is 0 (error)")
 
         return precision, recall
 
     def calculate_precision_recall_for_three_excluding_no_predict(self, cluster_df):
-        # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
-        # Filter cluster_df where predict is true and predicted_veracity is 1 or 3
         cluster_df = cluster_df[cluster_df['predict']]
+        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
+        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
-        return self.calculate_precision_recall_for_three(cluster_df)
+        return self.calculate_precision_recall_for_a_value(cluster_df, 3)
+    
+    def calculate_precision_recall_for_one_excluding_no_predict(self, cluster_df):
+        cluster_df = cluster_df[cluster_df['predict']]
+        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
+        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
+        return self.calculate_precision_recall_for_a_value(cluster_df, 1)
+    
+    def calculate_weighted_precision_recall_excluding_no_predict(self, cluster_df):
+        cluster_df = cluster_df[cluster_df['predict']]
+        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
+        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
+        return self.calculate_precision_recall(cluster_df)
+

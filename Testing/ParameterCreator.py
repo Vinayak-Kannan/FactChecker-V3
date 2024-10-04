@@ -6,12 +6,12 @@ class ParameterCreator:
     def __init__(self):
         self.parameters = {}
         data_loader = DataLoader(0.75, False, 23)
-        train_df, test_df = data_loader.create_train_test_df(True, True, True)
+        train_df, test_df = data_loader.create_train_test_df(True, True, True, True)
 
         vals = {
             # HDBSCAN parameters
             'min_cluster_size': [5],
-            'min_samples': [5],
+            'min_samples': [2],
             'use_hdbscan': [True],
 
             # UMAP parameters
@@ -37,7 +37,9 @@ class ParameterCreator:
             'use_weightage': [True],
             'k': [15000],
             'threshold_break': [0.9],
-            'break_further': [False],
+            'break_further': [True],
+            'size_of_dataset': [1],
+            'use_only_CARD': [True]
         }
 
         # Generate all combinations of parameter values
@@ -49,4 +51,4 @@ class ParameterCreator:
 
     def get_parameters(self):
         return self.parameters
-
+ 
