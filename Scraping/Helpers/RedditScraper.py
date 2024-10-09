@@ -73,8 +73,6 @@ class RedditScraper:
             claims[i] = claim.replace(";", ", ")
             claims[i] = claim.replace("...", ", ")
             claims[i] = claim.replace("\n", ", ")
-            
-
 
         # UNcommet for actual reddit scraping
         # # Join the list into a single string

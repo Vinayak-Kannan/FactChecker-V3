@@ -156,6 +156,7 @@ class Embedder:
             texts.append(text)
         
         # Fetch embeddings in batches
+        success = True
         for i in range(0, len(texts), batch_size):
             print("Getting embeddings for batch ", i, " out of ", len(texts))
             batch_texts = texts[i:i + batch_size]
@@ -164,12 +165,23 @@ class Embedder:
             
             if query_original and len(query_original.keys()) > 0:
                 for text in batch_texts:
-                    embeddings.append(np.array(query_original[text]['values']))
+                    if text not in query_original:
+                        # Get veracity based on index in texts
+                        loc_ver = veracity[texts.index(text)]
+                        self.__get_embedding(text, veracity=loc_ver)
+                        # Break and restart the loop
+                        success = False
+                    else:
+                        embeddings.append(np.array(query_original[text]['values']))
             else:
                 raise ValueError("Nothing returned from Pinecone")
         
-        if len(embeddings) != len(texts):
-            raise ValueError("Length of embeddings and texts do not match.")
+        if len(embeddings) != len(texts) and success:
+            raise ValueError("Length of embeddings and texts do not match.")        
+
+        if not success:
+            print("Restarting...")
+            return self.embed_claims_batch(claims, veracity)
         
         return np.array(embeddings)
       

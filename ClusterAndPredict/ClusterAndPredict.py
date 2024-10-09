@@ -40,7 +40,7 @@ class ClusterAndPredict:
                  use_hdbscan: bool = True,
                  train_df: pd.DataFrame = pd.DataFrame()):
         pd.set_option('future.no_silent_downcasting', True)
-        self.train_text = None
+        self.test_text = None
         self.EmbedderObject = None
         self.ClusterEmbeddingsObject = None
         self.min_cluster_size = min_cluster_size
@@ -174,7 +174,7 @@ class ClusterAndPredict:
         self.predicted_sds = predicted_sd
         self.confidences = predicted_confidence
 
-        self.train_text = X
+        self.test_text = X
         self.actual_veracities = y
 
     def score(self, _, __):
@@ -184,7 +184,7 @@ class ClusterAndPredict:
 
 
         for i, value in enumerate(self.predicted_means):
-            claim = self.train_text[i]
+            claim = self.test_text[i]
             if not self.clusters_df.loc[self.clusters_df['text'] == claim, 'predict'].values[0]:
                 raise ValueError("Predicted value is False")
             cluster = self.clusters_df.loc[self.clusters_df['text'] == claim, 'cluster'].values[0]

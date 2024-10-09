@@ -78,7 +78,8 @@ class ClaimClassifier:
         # Find indices of old_claims that are in claims and drop from old_claims, old_veracity, old_predict [likely not needed]
         indices_to_drop = []
         for i, claim in enumerate(old_claims):
-            if claim in claims:
+            if claim in seen:
+                raise ValueError("Claim already in claims")
                 indices_to_drop.append(i)
         old_claims = [old_claims[i] for i in range(len(old_claims)) if i not in indices_to_drop]
         old_veracity = [old_veracity[i] for i in range(len(old_veracity)) if i not in indices_to_drop]
@@ -89,6 +90,7 @@ class ClaimClassifier:
         temp_df["veracity"] = [-1 for _ in range(len(claims))] + old_veracity
         temp_df["predict"] = [True for _ in range(len(claims))] + old_predict
         temp_df["predicted_veracity"] = [-1 for _ in range(len(claims))] + old_veracity
+        print("temp_df length: " + str(len(temp_df)))
 
         # Drop duplicates in text column in temp_df
         temp_df = temp_df.drop_duplicates(subset=["text"])
@@ -96,6 +98,8 @@ class ClaimClassifier:
         claims_embeddings = np.array(claims_embeddings)
         # claims_embeddings = np.squeeze(claims_embeddings, axis=1)
         embedding_np = np.concatenate((claims_embeddings, current_embeddings_predict), axis=0)
+        print("claims_embeddings shape: ", str(claims_embeddings.shape))
+        print("claims_embeddings predict shape: ", str(current_embeddings_predict.shape))
 
         if use_umap:
             reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
