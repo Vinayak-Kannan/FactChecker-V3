@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from pinecone import Pinecone, FetchResponse
 
 from Clustering.Helpers.Embedder import Embedder
+from ClusterAndPredict.ParametricUMAP import ParametricUMAPEncoder
 import hdbscan
 import pandas as pd
 from joblib import load
@@ -107,28 +108,30 @@ class ClaimClassifier:
 
             y_tensor = temp_df["veracity"].astype(int).tolist()
             if parametric_umap:
-                print("Running parametric supervised umap...")
-                encoder = keras.Sequential([
-                    keras.layers.InputLayer(input_shape=(3072, )),
-                    keras.layers.Dense(units=256, activation="relu"),
-                    keras.layers.Dense(units=256, activation="relu"),
-                    keras.layers.Dense(units=self.num_components),
-                ])
-                encoder.summary()
-                reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
-                embedding_np = tf.convert_to_tensor(embedding_np)
-                y_tensor = tf.convert_to_tensor(y_tensor)
+                print("Running parametri supervised umap...")
+                # encoder = keras.Sequential([
+                #     keras.layers.InputLayer(input_shape=(3072, )),
+                #     keras.layers.Dense(units=256, activation="relu"),
+                #     keras.layers.Dense(units=256, activation="relu"),
+                #     keras.layers.Dense(units=self.num_components),
+                # ])
+                # encoder.summary()
+                # reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
+                # embedding_np = tf.convert_to_tensor(embedding_np)
+                # y_tensor = tf.convert_to_tensor(y_tensor)
+                param_umap_encoder = ParametricUMAPEncoder(self.num_components, embedding_np, y_tensor, trained=True)
+                embedding_np = param_umap_encoder.transform()
 
-            if supervised_umap:
-                print("Running supervised umap...")
-                embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
-                if parametric_umap:
-                    print("Running parametric supervised umap...")
-                    print(reducer._history)
-                    fig, ax = plt.subplots()
-                    ax.plot(reducer._history['loss'])
-                    ax.set_ylabel('Cross Entropy')
-                    ax.set_xlabel('Epoch')
+            # if supervised_umap:
+            #     print("Running supervised umap...")
+            #     embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
+            #     if parametric_umap:
+            #         print("Running parametric supervised umap...")
+            #         print(reducer._history)
+            #         fig, ax = plt.subplots()
+            #         ax.plot(reducer._history['loss'])
+            #         ax.set_ylabel('Cross Entropy')
+            #         ax.set_xlabel('Epoch')
             else:
                 print("Running unsupervised umap...")
                 embedding_np = reducer.fit_transform(embedding_np)
