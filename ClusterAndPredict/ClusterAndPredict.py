@@ -248,15 +248,15 @@ class ClusterAndPredict:
             else:
                 predictions_60_confidence.append(5)
 
-        self.accuracy_90_confidence = metrics.accuracy_score(self.actual_veracities, predictions_90_confidence)
-        self.accuracy_80_confidence = metrics.accuracy_score(self.actual_veracities, predictions_80_confidence)
-        self.accuracy_70_confidence = metrics.accuracy_score(self.actual_veracities, predictions_70_confidence)
-        self.accuracy_60_confidence = metrics.accuracy_score(self.actual_veracities, predictions_60_confidence)
+        # self.accuracy_90_confidence = metrics.accuracy_score(self.actual_veracities, predictions_90_confidence)
+        # self.accuracy_80_confidence = metrics.accuracy_score(self.actual_veracities, predictions_80_confidence)
+        # self.accuracy_70_confidence = metrics.accuracy_score(self.actual_veracities, predictions_70_confidence)
+        # self.accuracy_60_confidence = metrics.accuracy_score(self.actual_veracities, predictions_60_confidence)
 
-        self.percentage_90_confidence = 1 - (predictions_90_confidence.count(5) / len(predictions_90_confidence))
-        self.percentage_80_confidence = 1 - (predictions_80_confidence.count(5) / len(predictions_80_confidence))
-        self.percentage_70_confidence = 1 - (predictions_70_confidence.count(5) / len(predictions_70_confidence))
-        self.percentage_60_confidence = 1 - (predictions_60_confidence.count(5) / len(predictions_60_confidence))
+        # self.percentage_90_confidence = 1 - (predictions_90_confidence.count(5) / len(predictions_90_confidence))
+        # self.percentage_80_confidence = 1 - (predictions_80_confidence.count(5) / len(predictions_80_confidence))
+        # self.percentage_70_confidence = 1 - (predictions_70_confidence.count(5) / len(predictions_70_confidence))
+        # self.percentage_60_confidence = 1 - (predictions_60_confidence.count(5) / len(predictions_60_confidence))
 
         return (0.5 * self.precision_on_three_excluding_fours + 0.5 * self.recall_on_three_excluding_fours) / 0.5
 
@@ -435,7 +435,6 @@ class ClusterAndPredict:
         num_correct = 0
 
         cluster_df = cluster_df[cluster_df['predict']]
-
         for _, row in cluster_df.iterrows():
             if int(row['veracity']) == int(row['predicted_veracity']):
                 num_correct += 1
@@ -447,6 +446,7 @@ class ClusterAndPredict:
     def calculate_accuracy_excluding_no_predict(self, cluster_df):
         # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
 
+	# Print value counts for predict
         cluster_df = cluster_df[cluster_df['predict']]
         # Filter where predicted veracity equals 1 or 3
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]

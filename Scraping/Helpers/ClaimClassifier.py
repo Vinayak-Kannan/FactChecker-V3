@@ -79,7 +79,7 @@ class ClaimClassifier:
         indices_to_drop = []
         for i, claim in enumerate(old_claims):
             if claim in seen:
-                raise ValueError("Claim already in claims")
+                # raise ValueError("Claim already in claims")
                 indices_to_drop.append(i)
         old_claims = [old_claims[i] for i in range(len(old_claims)) if i not in indices_to_drop]
         old_veracity = [old_veracity[i] for i in range(len(old_veracity)) if i not in indices_to_drop]
@@ -92,14 +92,26 @@ class ClaimClassifier:
         temp_df["predicted_veracity"] = [-1 for _ in range(len(claims))] + old_veracity
         print("temp_df length: " + str(len(temp_df)))
 
-        # Drop duplicates in text column in temp_df
-        temp_df = temp_df.drop_duplicates(subset=["text"])
+        # temp_df = temp_df.drop_duplicates(subset=["text"])
 
         claims_embeddings = np.array(claims_embeddings)
         # claims_embeddings = np.squeeze(claims_embeddings, axis=1)
         embedding_np = np.concatenate((claims_embeddings, current_embeddings_predict), axis=0)
+
+        # Drop duplicates in text column in temp_df. Drop the same index in claims_embeddings
+        # Drop duplicates in 'text' column and maintain the first occurrences
+        temp_df = temp_df.drop_duplicates(subset=['text'], keep='first')
+
+        # Find the indices of the retained rows
+        retained_indices = temp_df.index
+
+        # Filter claims_embeddings based on the retained indices
+        embedding_np = embedding_np[retained_indices]
+        
+
         print("claims_embeddings shape: ", str(claims_embeddings.shape))
         print("claims_embeddings predict shape: ", str(current_embeddings_predict.shape))
+        print("embeddings_np shape: ", str(embedding_np.shape))
 
         if use_umap:
             reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,

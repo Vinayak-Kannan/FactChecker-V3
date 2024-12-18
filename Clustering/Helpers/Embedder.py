@@ -148,7 +148,7 @@ class Embedder:
     def embed_claims_batch(self, claims: list, veracity: list) -> np.ndarray:
         embeddings = []
         texts = []
-        batch_size = 75
+        batch_size = 50
         
         # Prepare texts
         for claim, ver in zip(claims, veracity):
