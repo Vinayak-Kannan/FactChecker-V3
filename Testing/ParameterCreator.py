@@ -21,7 +21,7 @@ class ParameterCreator:
 
             # UMAP options
             'no_umap': [False],
-            'parametric_umap': [False],
+            'parametric_umap': [True],
             'supervised_umap': [False],
 
             # Data column specifications
