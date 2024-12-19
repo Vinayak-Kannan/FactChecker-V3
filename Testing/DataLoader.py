@@ -65,8 +65,16 @@ class DataLoader():
         self.card_data_negated = self.card_data_negated.drop_duplicates(subset=['Text'])
         self.card_data_negated['Synthetic'] = [True for i in range(len(self.card_data_negated))]
         
-	# FEVER
+    	# FEVER
         self.FEVER_data = pd.read_csv("../../LLMTesting/fever_data.csv")
+                
+        # Google Fact Check
+        self.GoogleFactCheckData = pd.read_csv("GoogleFactCheckData.csv")
+        self.GoogleFactCheckData.rename(columns={"Item.claim_text.S": "Text", "Item.textual_rating.BOOL": "Numerical Rating"}, inplace=True)
+        self.GoogleFactCheckData = self.GoogleFactCheckData[['Text', 'Numerical Rating']]
+        self.GoogleFactCheckData = self.GoogleFactCheckData.dropna()
+        self.GoogleFactCheckData['Numerical Rating'] = self.GoogleFactCheckData['Numerical Rating'].replace({True: 3, False: 1})
+    
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool, use_fever: bool, percentage_data_to_use: float = 1.0) -> (
     pd.DataFrame, pd.DataFrame):
         self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
@@ -95,6 +103,8 @@ class DataLoader():
             objects.append(self.card_data)
             objects.append(self.epa_who_data)
             objects.append(self.FEVER_data)
+            print(1)
+            objects.append(self.GoogleFactCheckData)
         elif use_fever:
             objects.append(self.FEVER_data)
         
@@ -251,54 +261,4 @@ class DataLoader():
             folds.append((train_df, test_df))
         
         return folds
-
-    def create_half_dataset(self, path_to_full_dataset='/workspaces/FactChecker-V3/Testing/Test Output/all_data_results_cluster_df$2024-10-09 16:56:38.931931.csv'):
-	    # Set random seed for reproducibility
-            np.random.seed(42)
-	    
-	    # Read the full dataset
-            df = pd.read_csv(path_to_full_dataset)
-
-	    # Filter df to where 'predict' is False
-            df = df[df['predict'] == False]
-	    
-	    # Initialize an empty DataFrame to store the results
-            half_df = pd.DataFrame(columns=df.columns)
-
-            # Get unique cluster values excluding -1
-            clusters = df['cluster'].unique()
-            clusters = clusters[clusters != -1]
-
-            # Process each cluster
-            for cluster in clusters:
-                cluster_data = df[df['cluster'] == cluster]
-                half_size = len(cluster_data) // 2
-
-                # Randomly sample half of the rows from the cluster
-                sampled_data = cluster_data.sample(n=half_size, random_state=42)
-
-                # Append the sampled data to the result DataFrame
-                half_df = pd.concat([half_df, sampled_data], ignore_index=True)
-
-            # Add all rows with cluster -1 to the result DataFrame
-            outliers = df[df['cluster'] == -1]
-            half_df = pd.concat([half_df, outliers], ignore_index=True)
-
-            # Get the other half of the data
-            other_half_df = df[~df.index.isin(half_df.index)]
-
-            # Create train and test DataFrames
-            train_df, test_df = self.create_train_test_df(True, True, True, True, 1)
-
-            # Combine train_df and test_df
-            combined_df = pd.concat([train_df, test_df])
-
-            # Split combined_df based on matching 'Text' with 'text' in half_df and other_half_df
-            result_half_df = combined_df[combined_df['Text'].isin(half_df['text'])]
-        #     result_other_half_df = combined_df[combined_df['Text'].isin(other_half_df['text'])]
-        # Set result_other_half_df to be the remaining rows in combined_df
-            result_other_half_df = combined_df[~combined_df.index.isin(result_half_df.index)]
-            print(len(result_half_df), len(result_other_half_df))
-
-            return result_half_df, result_other_half_df
 
