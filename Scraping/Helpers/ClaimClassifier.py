@@ -23,7 +23,7 @@ from tensorflow.python.keras.layers import Dense
 
 class ClaimClassifier:
     model = None
-    pc = os.getenv("PINECONE_KEY"))
+    pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
     # chroma_client = chromadb.PersistentClient(
     #     path="./../../Clustering/Clustering/Chroma")
     chroma_client = None
