@@ -7,8 +7,10 @@ import numpy as np
 import umap
 from matplotlib import pyplot as plt
 from pinecone import Pinecone, FetchResponse
+import pickle
 
 from Clustering.Helpers.Embedder import Embedder
+from ClusterAndPredict.ParametricUMAP import ParametricUMAPEncoder
 import hdbscan
 import pandas as pd
 from joblib import load
@@ -92,26 +94,14 @@ class ClaimClassifier:
         temp_df["predicted_veracity"] = [-1 for _ in range(len(claims))] + old_veracity
         print("temp_df length: " + str(len(temp_df)))
 
-        # temp_df = temp_df.drop_duplicates(subset=["text"])
+        # Drop duplicates in text column in temp_df
+        temp_df = temp_df.drop_duplicates(subset=["text"])
 
         claims_embeddings = np.array(claims_embeddings)
         # claims_embeddings = np.squeeze(claims_embeddings, axis=1)
         embedding_np = np.concatenate((claims_embeddings, current_embeddings_predict), axis=0)
-
-        # Drop duplicates in text column in temp_df. Drop the same index in claims_embeddings
-        # Drop duplicates in 'text' column and maintain the first occurrences
-        temp_df = temp_df.drop_duplicates(subset=['text'], keep='first')
-
-        # Find the indices of the retained rows
-        retained_indices = temp_df.index
-
-        # Filter claims_embeddings based on the retained indices
-        embedding_np = embedding_np[retained_indices]
-        
-
         print("claims_embeddings shape: ", str(claims_embeddings.shape))
         print("claims_embeddings predict shape: ", str(current_embeddings_predict.shape))
-        print("embeddings_np shape: ", str(embedding_np.shape))
 
         if use_umap:
             reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
@@ -120,32 +110,48 @@ class ClaimClassifier:
             y_tensor = temp_df["veracity"].astype(int).tolist()
             if parametric_umap:
                 print("Running parametric supervised umap...")
-                encoder = keras.Sequential([
-                    keras.layers.InputLayer(input_shape=(3072, )),
-                    keras.layers.Dense(units=256, activation="relu"),
-                    keras.layers.Dense(units=256, activation="relu"),
-                    keras.layers.Dense(units=self.num_components),
-                ])
-                encoder.summary()
-                reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
-                embedding_np = tf.convert_to_tensor(embedding_np)
-                y_tensor = tf.convert_to_tensor(y_tensor)
+                
 
-            if supervised_umap:
-                print("Running supervised umap...")
-                embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
-                if parametric_umap:
-                    print("Running parametric supervised umap...")
-                    print(reducer._history)
-                    fig, ax = plt.subplots()
-                    ax.plot(reducer._history['loss'])
-                    ax.set_ylabel('Cross Entropy')
-                    ax.set_xlabel('Epoch')
+                
+                # # save embedding_np and y_tensor 
+                # with open('variables.pkl', 'wb') as f:
+                #     pickle.dump((embedding_np, y_tensor), f)
+                # print("Finished!")
+                
+                # with open('embedding_np.pkl', 'rb') as f:
+                #    embedding_np = pickle.load(f)
+                
+                # encoder = keras.Sequential([
+                #     keras.layers.InputLayer(input_shape=(3072, )),
+                #     keras.layers.Dense(units=256, activation="relu"),
+                #     keras.layers.Dense(units=256, activation="relu"),
+                #     keras.layers.Dense(units=self.num_components),
+                # ])
+                # encoder.summary()
+                # reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
+                # embedding_np = tf.convert_to_tensor(embedding_np)
+                # y_tensor = tf.convert_to_tensor(y_tensor)
+                param_umap_encoder = ParametricUMAPEncoder(self.num_components, embedding_np, y_tensor, trained=True, seed=seed)
+                embedding_np = param_umap_encoder.transform()
+
+            # if supervised_umap:
+            #     print("Running supervised umap...")
+            #     embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
+            #     if parametric_umap:
+            #         print("Running parametric supervised umap...")
+            #         print(reducer._history)
+            #         fig, ax = plt.subplots()
+            #         ax.plot(reducer._history['loss'])
+            #         ax.set_ylabel('Cross Entropy')
+            #         ax.set_xlabel('Epoch')
             else:
                 print("Running unsupervised umap...")
                 embedding_np = reducer.fit_transform(embedding_np)
 
         temp_df["embeddings"] = embedding_np.tolist()
+        
+        # with open('temp_df.pkl', 'wb') as f:
+        #     pickle.dump(temp_df, f)
 
         # Upload to pinecone db
         # print("Starting upload to pinecone...")
