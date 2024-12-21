@@ -21,3 +21,4 @@
 !/Clustering/Raw Data/Climate/test_data_06_26 - Sheet1.csv
 *.pyc
 !/LLMTesting/fever_data.csv
+/Testing/Test Output/GoogleFactCheckData.csv
