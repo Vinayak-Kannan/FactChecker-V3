@@ -73,6 +73,7 @@ class ParametricUMAPEncoder:
             self.fit()
 
     def fit(self):
+        print("Num GPUs Available during fit: ", len(tf.config.list_physical_devices('GPU')))
         start_time = time.time()
         self.reducer.fit(self.embedding_np, y=self.y_tensor)
         self.encoder.save_weights('encoder.weights.h5')
