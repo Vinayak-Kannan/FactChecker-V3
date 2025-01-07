@@ -583,3 +583,53 @@ class ClusterAndPredict:
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
         return self.calculate_precision_recall(cluster_df)
 
+def generate_explanations_for_each_claim(self, cluster_df, prediction_column, cluster_column, claim_column):
+    # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
+    # Create a dictionary to store the explanations
+    explanations = {}
+    # Loop through the cluster_df and generate explanations for each claim
+    for _, row in cluster_df.iterrows():
+        # Get the claim
+        claim = row[claim_column]
+        # Get the cluster
+        cluster = row[cluster_column]
+        # Get all the other claims in the cluster
+        cluster_df_cluster = cluster_df[cluster_df[cluster_column] == cluster]
+
+        # Get the prediction
+        prediction = row[prediction_column]
+        # Get the predicted veracity
+        predicted_veracity = row['predicted_veracity']
+        
+        # Convert predicted_veracity to True/False
+        if predicted_veracity == 1:
+            predicted_veracity_str = "False"
+        elif predicted_veracity == 3:
+            predicted_veracity_str = "True"
+        else:
+            explanations[claim] = "N/A"
+            continue
+
+        # Prepare the context for the explanation
+        context = "\n".join(
+            f"Claim: {r[claim_column]}, Predicted Veracity: {'True' if r['predicted_veracity'] == 3 else 'False'}"
+            for _, r in cluster_df_cluster.iterrows()
+        )
+
+        # Generate an explanation
+        explanation = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                { "role": "developer", "content": "You are a helpful assistant." },
+                {
+                    "role": "user",
+                    "content": f"""Explain why the claim "{claim}" was predicted as {predicted_veracity_str}. The prediction was {prediction}. Here are the other claims in the same cluster and their predicted veracity:\n{context}"""
+                },
+            ]
+        ).choices[0].message.content
+        # Store the explanation in the dictionary
+        explanations[claim] = explanation
+
+    # Add the explanations as a new column in the cluster_df
+    cluster_df['explanation'] = cluster_df[claim_column].map(explanations)
+    return cluster_df
