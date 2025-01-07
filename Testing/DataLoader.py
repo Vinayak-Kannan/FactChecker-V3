@@ -15,16 +15,18 @@ class DataLoader():
         self.ground_truth = self.ground_truth[self.ground_truth['Text'] != '']
         self.ground_truth = self.ground_truth.drop_duplicates(subset=['Text'])
         self.ground_truth['Synthetic'] = [False for i in range(len(self.ground_truth))]
+        self.ground_truth['Source'] = self.ground_truth['FactCheck URL']
 
         # EPA
         self.epa_who_data = pd.read_csv(
-            "../Clustering/Raw Data/Climate/climate_change_epa_who.csv")
+            "../Clustering/Raw Data/Climate/Cleaned/epa.csv")
         self.epa_who_data['Category'] = -1
         self.epa_who_data['Numerical Rating'] = 3
         self.epa_who_data = self.epa_who_data.dropna(subset=['Text'])
         self.epa_who_data = self.epa_who_data[self.epa_who_data['Text'] != '']
         self.epa_who_data = self.epa_who_data.drop_duplicates(subset=['Text'])
         self.epa_who_data['Synthetic'] = [False for i in range(len(self.epa_who_data))]
+        self.ground_truth['Source'] = 'Synthetic'
 
 
         self.epa_who_data_negated = pd.read_csv(
@@ -36,6 +38,7 @@ class DataLoader():
         self.epa_who_data_negated = self.epa_who_data_negated[self.epa_who_data_negated['Text'] != '']
         self.epa_who_data_negated = self.epa_who_data_negated.drop_duplicates(subset=['Text'])
         self.epa_who_data_negated['Synthetic'] = [True for i in range(len(self.epa_who_data_negated))]
+        self.ground_truth['Source'] = 'EPA'
 
         # Card Data
         self.card_data = pd.read_csv(
@@ -49,6 +52,7 @@ class DataLoader():
         self.card_data = self.card_data[self.card_data['score'] >= 0.8]
         self.card_data = self.card_data.drop_duplicates(subset=['Text'])
         self.card_data['Synthetic'] = [False for i in range(len(self.card_data))]
+        self.ground_truth['Source'] = 'Synthetic'
 
 
         self.card_data_negated = pd.read_csv(
@@ -64,9 +68,11 @@ class DataLoader():
         self.card_data_negated = self.card_data_negated[self.card_data_negated['score'] >= 0.8]
         self.card_data_negated = self.card_data_negated.drop_duplicates(subset=['Text'])
         self.card_data_negated['Synthetic'] = [True for i in range(len(self.card_data_negated))]
+        self.ground_truth['Source'] = 'CARD'
         
     	# FEVER
         self.FEVER_data = pd.read_csv("../LLMTesting/fever_data.csv")
+        self.ground_truth['Source'] = 'FEVER'
                 
         # Google Fact Check
         self.GoogleFactCheckData = pd.read_csv("../Testing/GoogleFactCheckData.csv")
@@ -74,6 +80,7 @@ class DataLoader():
         self.GoogleFactCheckData = self.GoogleFactCheckData[['Text', 'Numerical Rating']]
         self.GoogleFactCheckData = self.GoogleFactCheckData.dropna()
         self.GoogleFactCheckData['Numerical Rating'] = self.GoogleFactCheckData['Numerical Rating'].replace({True: 3, False: 1})
+        self.GoogleFactCheckData['Source'] = self.GoogleFactCheckData['Item.review_url']
     
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool, use_fever: bool, percentage_data_to_use: float = 1.0) -> (
     pd.DataFrame, pd.DataFrame):
