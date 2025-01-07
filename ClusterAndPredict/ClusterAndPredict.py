@@ -635,3 +635,8 @@ class ClusterAndPredict:
         # Add the explanations as a new column in the cluster_df
         cluster_df['explanation'] = cluster_df[claim_column].map(explanations)
         return cluster_df
+
+    def clean_columns_for_s3(self, cluster_df):
+        # Loop through all 'predicted_veracity' and 1 and 3 to True and False and 4 and 5 to No prediction in a new column called 'cleaned_predicted_veracity'
+        cluster_df['cleaned_predicted_veracity'] = cluster_df['predicted_veracity'].map({1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
+        return cluster_df
