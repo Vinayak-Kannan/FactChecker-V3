@@ -479,8 +479,9 @@ class ClusterAndPredict:
         # Filter df to where predict is true
         cluster_df = cluster_df[cluster_df['predict']]
         # Cast veracity and predicted_veracity as int
-        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
-        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        cluster_df['predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        cluster_df['veracity'] = cluster_df['veracity'].astype(int)
+
         
         # Filter df to where veracity is value
         cluster_df = cluster_df[cluster_df['veracity'] == value]
@@ -505,12 +506,9 @@ class ClusterAndPredict:
 
         # If count of pos_value in veracity is 0, return NaN for precision and recall
         if cluster_df['veracity'].value_counts().get(value) == None:
-            print("happened")
             return "No values with this veracity were possible to predict", "No values with this veracity were possible to predict"
         
-        print("ERROR DEBUG")
-        print(cluster_df['veracity'].value_counts())
-        print(cluster_df['predicted_veracity'].value_counts())
+
         precision = metrics.precision_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary', pos_label=value)
         recall = metrics.recall_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary', pos_label=value)
         
@@ -535,8 +533,10 @@ class ClusterAndPredict:
         
         # Filter df to where predict is true
         cluster_df = cluster_df[cluster_df['predict']]
-        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
-        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        
+        cluster_df['predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        cluster_df['veracity'] = cluster_df['veracity'].astype(int)
+        
         cluster_df.loc[(cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 3), 'predicted_veracity'] = 1
         cluster_df.loc[(cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 1), 'predicted_veracity'] = 3
 
@@ -582,8 +582,10 @@ class ClusterAndPredict:
     
     def calculate_weighted_precision_recall_excluding_no_predict(self, cluster_df):
         cluster_df = cluster_df[cluster_df['predict']]
-        cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
-        cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
+        
+        cluster_df.loc[:, 'veracity'] = cluster_df.loc[:, 'veracity'].astype(int)
+        cluster_df.loc[:, 'predicted_veracity'] = cluster_df.loc[:, 'predicted_veracity'].astype(int)
+        
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
         return self.calculate_precision_recall(cluster_df)
 
