@@ -22,3 +22,6 @@
 *.pyc
 !/LLMTesting/fever_data.csv
 /Testing/Test Output/GoogleFactCheckData.csv
+*.ipynb_checkpoints*
+*processed_files*
+.env

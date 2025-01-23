@@ -259,7 +259,10 @@ class ClusterAndPredict:
         # self.percentage_70_confidence = 1 - (predictions_70_confidence.count(5) / len(predictions_70_confidence))
         # self.percentage_60_confidence = 1 - (predictions_60_confidence.count(5) / len(predictions_60_confidence))
 
-        return (0.5 * self.precision_on_three_excluding_fours + 0.5 * self.recall_on_three_excluding_fours) / 0.5
+        try:
+            return (0.5 * self.precision_on_three_excluding_fours + 0.5 * self.recall_on_three_excluding_fours) / 0.5
+        except:
+            return 0
 
     def print_all_performance_metrics(self) -> None:
         self.score([], [])
@@ -585,58 +588,157 @@ class ClusterAndPredict:
         return self.calculate_precision_recall(cluster_df)
 
 
-    def generate_explanations_for_each_claim(self, cluster_df, prediction_column, cluster_column, claim_column):
-        # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
-        # Create a dictionary to store the explanations
+    def generate_explanations_and_similar_for_each_claim(self, cluster_df, prediction_column, cluster_column, claim_column, generate_explanations: bool = False):
+        """
+        clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, 
+        num_correct_in_cluster, total_in_cluster, cluster_accuracy
+        """
+        from tqdm import tqdm
+
+        # Create dictionaries to store the explanations, similar claims, and cluster names
         explanations = {}
-        # Loop through the cluster_df and generate explanations for each claim
+        similar_claims = {}
+        claim_cluster_names = {}
+
+        # First, gather unique clusters
+        unique_clusters = cluster_df[cluster_column].unique()
+
+        # We'll store the final name for each cluster in a dictionary
+        cluster_names = {}
+
+        # Generate names once for each cluster (except for -1)
+        for cluster_id in unique_clusters:
+            if cluster_id == -1:
+                cluster_names[cluster_id] = "Unclassified"
+                continue
+
+            # Subset the cluster dataframe (only ground truth claims for context)
+            cluster_df_cluster = cluster_df[(cluster_df[cluster_column] == cluster_id) & (~cluster_df['predict'])]
+
+            # Prepare context of other claims in this cluster
+            context_claim_name = "\n".join(
+                f"Claim: {row[claim_column]}, Predicted Veracity: {'True' if row['predicted_veracity'] == 3 else 'False'}"
+                for _, row in cluster_df_cluster.iterrows()
+            )
+
+            # Gather the other cluster names we already have (to avoid duplicates)
+            existing_names = [name for c_id, name in cluster_names.items() if c_id != -1]
+
+            if generate_explanations:
+                # Use the model to generate a cluster name
+                new_cluster_name = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "developer",
+                            "content": "You are a helpful assistant. Your response should be brief, at most 7 words."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""
+                            Here are list of claims that are used in my topic modeling algorithm. 
+                            Give a name that describes this cluster of claims. 
+                            Try to come up with a topic cluster name that is dissimilar from other cluster names.
+                            Here are the list of claims in the cluster: {context_claim_name}
+
+                            Here are the list of other cluster names: {existing_names}.
+
+                            Do not come up with a cluster name that's longer than 7 words.
+                            """
+                        },
+                    ]
+                ).choices[0].message.content
+                cluster_names[cluster_id] = new_cluster_name
+            else:
+                cluster_names[cluster_id] = "tbd"
+
+        # Now loop through each row to generate explanations and context
         for _, row in tqdm(cluster_df.iterrows(), total=cluster_df.shape[0], desc="Generating explanations"):
-            # Get the claim
             claim = row[claim_column]
-            # Get the cluster
-            cluster = row[cluster_column]
-            # Get all the other claims in the cluster
-            cluster_df_cluster = cluster_df[cluster_df[cluster_column] == cluster]
+            cluster_id = row[cluster_column]
+
+            # If the cluster is -1, handle it
+            if cluster_id == -1:
+                explanations[claim] = "N/A - Not enough information to make a prediction"
+                similar_claims[claim] = "N/A"
+                claim_cluster_names[claim] = cluster_names[cluster_id]
+                continue
+
+            # Store the cluster name for this claim
+            claim_cluster_names[claim] = cluster_names[cluster_id]
+
+            # Get the ground truth claims in the cluster for explanation context
+            cluster_df_cluster = cluster_df[(cluster_df[cluster_column] == cluster_id) & (~cluster_df['predict'])]
+            context = "\n".join(
+                f"Claim: {r[claim_column]}, Predicted Veracity: {'True' if r['predicted_veracity'] == 3 else 'False'}"
+                for _, r in cluster_df_cluster.iterrows()
+            )
+            # If it's a ground truth claim
+            if not row['predict']:
+                explanations[claim] = "N/A - Ground truth claim"
+                similar_claims[claim] = "N/A"
+                continue
 
             # Get the prediction
             prediction = row[prediction_column]
-            # Get the predicted veracity
+            # Convert predicted_veracity to True/False or handle if unknown
             predicted_veracity = row['predicted_veracity']
-        
-            # Convert predicted_veracity to True/False
             if predicted_veracity == 1:
                 predicted_veracity_str = "False"
             elif predicted_veracity == 3:
                 predicted_veracity_str = "True"
             else:
-                explanations[claim] = "N/A"
+                explanations[claim] = "N/A - Model unable to make a prediction"
+                similar_claims[claim] = "N/A"
                 continue
 
-            # Prepare the context for the explanation
-            context = "\n".join(
-                f"Claim: {r[claim_column]}, Predicted Veracity: {'True' if r['predicted_veracity'] == 3 else 'False'}"
-                for _, r in cluster_df_cluster.iterrows()
-            )
+            # Generate the short explanation if asked
+            explanation = "tbd"
+            if generate_explanations:
+                explanation = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "developer",
+                            "content": "You are a helpful assistant. Your response should be brief, at most 2 sentences."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""Explain why the claim "{claim}" was predicted as {predicted_veracity_str}. 
+    The prediction was {prediction}. Here are the other claims in the same cluster and their predicted veracity:
+    {context}. 
+    Do not give a response longer than 2 sentences. Do not cite external information outside of the evidence I've given you from other claims in the same cluster."""
+                        },
+                    ]
+                ).choices[0].message.content
 
-            # Generate an explanation
-            explanation = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    { "role": "developer", "content": "You are a helpful assistant." },
-                    {
-                        "role": "user",
-                        "content": f"""Explain why the claim "{claim}" was predicted as {predicted_veracity_str}. The prediction was {prediction}. Here are the other claims in the same cluster and their predicted veracity:\n{context}"""
-                    },
-                ]
-            ).choices[0].message.content
-            # Store the explanation in the dictionary
             explanations[claim] = explanation
+            similar_claims[claim] = context
 
-        # Add the explanations as a new column in the cluster_df
+        # Add the new columns to the dataframe
         cluster_df['explanation'] = cluster_df[claim_column].map(explanations)
+        # Function to process similar claims
+        def process_claims(claims):
+            sentences = claims.split("\n")
+            if len(sentences) > 5:
+                return "\n".join(sentences[:5]) + "..."
+            return claims
+
+        # Process similar claims before mapping
+        processed_similar_claims = {key: process_claims(value) for key, value in similar_claims.items()}
+
+        # Map processed similar claims to the DataFrame
+        cluster_df['similar_claims'] = cluster_df[claim_column].map(processed_similar_claims)
+        cluster_df['cluster_name'] = cluster_df[claim_column].map(claim_cluster_names)
+
         return cluster_df
+
 
     def clean_columns_for_s3(self, cluster_df):
         # Loop through all 'predicted_veracity' and 1 and 3 to True and False and 4 and 5 to No prediction in a new column called 'cleaned_predicted_veracity'
         cluster_df['cleaned_predicted_veracity'] = cluster_df['predicted_veracity'].map({1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
+        cluster_df['cleaned_veracity'] = cluster_df['veracity'].map({1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
+        # Capatalize text column first letter
+        cluster_df['text'] = cluster_df['text'].str.capitalize()
+        cluster_df['id'] = cluster_df['text'].str[:100].str.capitalize()
         return cluster_df

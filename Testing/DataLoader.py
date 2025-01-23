@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import KFold
+import boto3
+from decimal import Decimal
+from boto3.dynamodb.conditions import Attr
+
 
 
 class DataLoader():
@@ -10,25 +14,27 @@ class DataLoader():
         self.percentage_false = percentage_false
         # Ground Truth
         self.ground_truth = pd.read_csv(
-            "../Clustering/Raw Data/Climate/VKs Copy of Cleaned - Google Fact Check Explorer - Climate.xlsx - Corrected.csv")
+            "/home/ec2-user/SageMaker/FactChecker-V3/Clustering/Raw Data/Climate/VKs Copy of Cleaned - Google Fact Check Explorer - Climate.xlsx - Corrected.csv")
         self.ground_truth = self.ground_truth.dropna(subset=['Text'])
         self.ground_truth = self.ground_truth[self.ground_truth['Text'] != '']
         self.ground_truth = self.ground_truth.drop_duplicates(subset=['Text'])
         self.ground_truth['Synthetic'] = [False for i in range(len(self.ground_truth))]
+        self.ground_truth['Source'] = self.ground_truth['FactCheck URL']
 
         # EPA
         self.epa_who_data = pd.read_csv(
-            "../Clustering/Raw Data/Climate/climate_change_epa_who.csv")
+            "/home/ec2-user/SageMaker/FactChecker-V3/Clustering/Raw Data/Climate/epa.csv")
         self.epa_who_data['Category'] = -1
         self.epa_who_data['Numerical Rating'] = 3
         self.epa_who_data = self.epa_who_data.dropna(subset=['Text'])
         self.epa_who_data = self.epa_who_data[self.epa_who_data['Text'] != '']
         self.epa_who_data = self.epa_who_data.drop_duplicates(subset=['Text'])
         self.epa_who_data['Synthetic'] = [False for i in range(len(self.epa_who_data))]
+        self.epa_who_data['Source'] = 'EPA'
 
 
         self.epa_who_data_negated = pd.read_csv(
-            "../Clustering/Raw Data/Climate/Negated Claims/negated_epa_data.csv")
+            "/home/ec2-user/SageMaker/FactChecker-V3/Clustering/Raw Data/Climate/Negated Claims/negated_epa_data.csv")
         self.epa_who_data_negated['Category'] = -1
         self.epa_who_data_negated['Numerical Rating'] = 1
         self.epa_who_data_negated = self.epa_who_data_negated.rename(columns={'text': 'Text'})
@@ -36,10 +42,12 @@ class DataLoader():
         self.epa_who_data_negated = self.epa_who_data_negated[self.epa_who_data_negated['Text'] != '']
         self.epa_who_data_negated = self.epa_who_data_negated.drop_duplicates(subset=['Text'])
         self.epa_who_data_negated['Synthetic'] = [True for i in range(len(self.epa_who_data_negated))]
+        self.epa_who_data_negated['Source'] = 'Synthetic'
+
 
         # Card Data
         self.card_data = pd.read_csv(
-            "../Clustering/Raw Data/Climate/card_train_with_score.csv")
+            "/home/ec2-user/SageMaker/FactChecker-V3/Clustering/Raw Data/Climate/card_train_with_score.csv")
         self.card_data['claim'] = '1_1'
         self.card_data = self.card_data.rename(columns={'text': 'Text', 'claim': 'Category'})
         # To the card_data, add a 'Numerical Rating' column with value 1
@@ -49,10 +57,10 @@ class DataLoader():
         self.card_data = self.card_data[self.card_data['score'] >= 0.8]
         self.card_data = self.card_data.drop_duplicates(subset=['Text'])
         self.card_data['Synthetic'] = [False for i in range(len(self.card_data))]
-
+        self.card_data['Source'] = 'CARD'
 
         self.card_data_negated = pd.read_csv(
-            "../Clustering/Raw Data/Climate/Negated Claims/negated_card_data_score_over_0.7.csv")
+            "/home/ec2-user/SageMaker/FactChecker-V3/Clustering/Raw Data/Climate/Negated Claims/negated_card_data_score_over_0.7.csv")
         self.card_data_negated['claim'] = '1_1'
         self.card_data_negated = self.card_data_negated.rename(columns={'text': 'Text', 'claim': 'Category'})
         # To the card_data, add a 'Numerical Rating' column with value 1
@@ -64,17 +72,20 @@ class DataLoader():
         self.card_data_negated = self.card_data_negated[self.card_data_negated['score'] >= 0.8]
         self.card_data_negated = self.card_data_negated.drop_duplicates(subset=['Text'])
         self.card_data_negated['Synthetic'] = [True for i in range(len(self.card_data_negated))]
-        
+        self.card_data_negated['Source'] = 'Synthetic'
+
     	# FEVER
-        self.FEVER_data = pd.read_csv("../LLMTesting/fever_data.csv")
+        self.FEVER_data = pd.read_csv("/home/ec2-user/SageMaker/FactChecker-V3/LLMTesting/fever_data.csv")
+        self.FEVER_data['Source'] = 'FEVER'
                 
         # Google Fact Check
-        self.GoogleFactCheckData = pd.read_csv("../Testing/GoogleFactCheckData.csv")
+        self.GoogleFactCheckData = pd.read_csv("/home/ec2-user/SageMaker/FactChecker-V3/Testing/GoogleFactCheckData.csv")
         self.GoogleFactCheckData.rename(columns={"Item.claim_text.S": "Text", "Item.textual_rating.BOOL": "Numerical Rating"}, inplace=True)
-        self.GoogleFactCheckData = self.GoogleFactCheckData[['Text', 'Numerical Rating']]
+        self.GoogleFactCheckData = self.GoogleFactCheckData[['Text', 'Numerical Rating', 'Item.review_url.S']]
         self.GoogleFactCheckData = self.GoogleFactCheckData.dropna()
         self.GoogleFactCheckData['Numerical Rating'] = self.GoogleFactCheckData['Numerical Rating'].replace({True: 3, False: 1})
-    
+        self.GoogleFactCheckData['Source'] = self.GoogleFactCheckData['Item.review_url.S']
+
     def create_train_test_df(self, use_card_data: bool, use_epa_data: bool, use_ground_truth: bool, use_fever: bool, percentage_data_to_use: float = 1.0) -> (
     pd.DataFrame, pd.DataFrame):
         self.ground_truth = self.ground_truth[self.ground_truth['Numerical Rating'].isin([1, 3])]
@@ -128,7 +139,7 @@ class DataLoader():
             print(train_df['Numerical Rating'].value_counts())
             print(test_df['Numerical Rating'].value_counts())
 
-        test_data = pd.read_csv('../Clustering/Raw Data/Climate/test_data_06_26 - Sheet1.csv')
+        test_data = pd.read_csv('/home/ec2-user/SageMaker/FactChecker-V3/Clustering/Raw Data/Climate/test_data_06_26 - Sheet1.csv')
         test_data['Numerical Rating'] = test_data['Numerical Rating'].astype(int)
         test_data['Synthetic'] = [False for i in range(len(test_data))]
         test_data = test_data.drop_duplicates(subset=['Text'])
@@ -312,3 +323,33 @@ class DataLoader():
         print(len(result_half_df), len(result_other_half_df))
 
         return result_half_df, result_other_half_df
+
+    def create_reddit_dataset(self):
+        dynamodb = boto3.resource('dynamodb')
+        table = dynamodb.Table('reddit_claims')
+        # Initialize an empty list to store matching items
+        matching_items = []
+
+        # Perform a scan operation
+        response = table.scan(
+            FilterExpression=Attr('score').gt('0.88')
+        )
+
+        # Process the initial scan results
+        matching_items.extend(response['Items'])
+
+        # Continue scanning if there are more items (pagination)
+        while 'LastEvaluatedKey' in response:
+            response = table.scan(
+                FilterExpression=Attr('YourAttributeName').gt(0.88),
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            matching_items.extend(response['Items'])
+
+        # Convert the list of matching items to a pandas DataFrame
+        df = pd.DataFrame(matching_items)
+        df['Source'] = 'Reddit'
+        df['Numerical Rating'] = 1
+        df.rename(columns={'text': 'Text'}, inplace=True)
+        df = df.drop_duplicates(subset=['Text'], keep='first')
+        return pd.concat([self.GoogleFactCheckData, self.epa_who_data], ignore_index=True), df

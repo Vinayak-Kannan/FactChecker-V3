@@ -174,7 +174,11 @@ class Embedder:
                     else:
                         embeddings.append(np.array(query_original[text]['values']))
             else:
-                raise ValueError("Nothing returned from Pinecone")
+                for text in batch_texts:
+                    loc_ver = veracity[texts.index(text)]
+                    self.__get_embedding(text, veracity=loc_ver)
+                    success = False
+                # raise ValueError("Nothing returned from Pinecone")
         
         if len(embeddings) != len(texts) and success:
             raise ValueError("Length of embeddings and texts do not match.")        
