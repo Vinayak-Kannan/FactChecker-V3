@@ -2,6 +2,7 @@ import os
 import uuid
 from operator import itemgetter
 
+
 import gensim
 import nltk
 import pandas as pd
@@ -34,7 +35,7 @@ class ClusterAndPredict:
                  supervised_label_column_name: str = 'Numerical Rating',
                  claim_column_name: str = 'Text',
                  veracity_column_name: str = 'Numerical Rating',
-                 parametric_umap: bool = False,
+                 parametric_umap: bool = True,
                  threshold_break: float = 0.8,
                  break_further: bool = True,
                  random_seed_val: int = 23,
@@ -154,6 +155,7 @@ class ClusterAndPredict:
             min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
 
         print("Fitting")
+        print(X, y)
         # cluster_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster
         predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
          self.train_df,
@@ -744,3 +746,97 @@ class ClusterAndPredict:
         cluster_df['text'] = cluster_df['text'].str.capitalize()
         cluster_df['id'] = cluster_df['text'].str[:100].str.capitalize()
         return cluster_df
+
+    def process_single_claim(self, claim_text: str, generate_detailed_explanation: bool = False):
+        """
+        Processes a single claim for real-time inference.
+
+        Args:
+            claim_text (str): The claim to verify.
+            generate_detailed_explanation (bool): Whether to generate detailed GPT explanation.
+
+        Returns:
+            dict: Prediction result with explanation. Basic return includes:
+                - claim: Original claim text
+                - prediction: "True", "False", or "No prediction"
+                - confidence: Confidence score (0-1)
+                - explanation: Basic explanation of the prediction
+                
+                If generate_detailed_explanation=True, also includes:
+                - cluster: Cluster ID
+                - similar_claims: Similar claims from training data
+                - cluster_name: Name of the cluster
+                - detailed_explanation: GPT-generated detailed explanation
+        """
+        if not hasattr(self, 'EmbedderObject') or self.EmbedderObject is None:
+            raise ValueError("Model not fitted. Please call fit() before processing claims.")
+
+        #Convert claim into DataFrame for processing
+        claim_df = pd.DataFrame({self.claim_column_name: [claim_text]})
+        claim_df[self.veracity_column_name] = 1
+        print('here 1')
+
+
+        
+        # Classify claim using the existing model
+        ClaimClassifierObject = ClaimClassifier(
+            EmbeddingObject=self.EmbedderObject,
+            path_to_model='../../Clustering/Models/',
+            time_stamp=self.time_stamp,
+            min_cluster_size=self.min_cluster_size,
+            min_samples=self.min_samples,
+            min_dist=self.min_dist,
+            num_components=self.num_components,
+            n_neighbors=self.n_neighbors
+        )
+        print('here 2')
+
+        prediction_result, _, confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
+            self.train_df,
+            [claim_text],
+            [1],
+            self.k,
+            self.use_weightage,
+            self.supervised_umap,
+            self.parametric_umap,
+            self.threshold_break,
+            self.break_further,
+            self.random_seed_val,
+            self.use_hdbscan,
+            not self.no_umap
+        )
+        print('here 3')
+
+        # Extract prediction and confidence score
+        predicted_veracity = prediction_result[0]
+        confidence_score = confidence[0]
+
+        # Prepare basic result dictionary
+        result = {
+            "claim": claim_text,
+            "prediction": "True" if predicted_veracity == 3 else "False" if predicted_veracity == 1 else "No prediction",
+            "confidence": confidence_score,
+            "explanation": f"The claim was classified as {'True' if predicted_veracity == 3 else 'False'} with {confidence_score*100:.2f}% confidence."
+        }
+        print('here 4')
+
+        # Generate detailed explanation if requested
+        if generate_detailed_explanation:
+            explained_df = self.generate_explanations_and_similar_for_each_claim(
+                cluster_df,
+                'predicted_veracity',
+                'cluster',
+                'text',
+                generate_explanations=True
+            )
+            explained_row = explained_df[explained_df['text'] == claim_text].iloc[0]
+            
+            result.update({
+                "cluster": int(explained_row['cluster']),
+                "similar_claims": explained_row['similar_claims'],
+                "cluster_name": explained_row['cluster_name'],
+                "detailed_explanation": explained_row['explanation']
+            })
+            print ('here 5')
+
+        return result

@@ -108,6 +108,7 @@ class ClaimClassifier:
                                 random_state=seed, n_jobs=1)
 
             y_tensor = temp_df["veracity"].astype(int).tolist()
+            print(parametric_umap)
             if parametric_umap:
                 print("Running parametric supervised umap...")
                 

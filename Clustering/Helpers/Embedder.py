@@ -1,6 +1,7 @@
 import glob
 import re
 from datetime import datetime
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -17,21 +18,38 @@ from umap import UMAP
 
 load_dotenv()
 
+print("=== Debug Info ===")
+print("Current working directory:", os.getcwd())
+print("OpenAI API Key loaded:", os.getenv("OPENAI_API_KEY") is not None)
+if os.getenv("OPENAI_API_KEY") is None:
+    # Try to load .env file directly
+    env_path = Path(__file__).parent.parent.parent.parent / '.env'
+    print("Looking for .env at:", env_path)
+    print("File exists:", env_path.exists())
+    if env_path.exists():
+        load_dotenv(env_path)
+        print("Loaded .env file, OpenAI API Key now loaded:", os.getenv("OPENAI_API_KEY") is not None)
 
 class Embedder:
     random_seed = None
-    api_key = os.getenv("OPEN_AI_KEY")
-    client = OpenAI(api_key=api_key)
     # chroma_client = chromadb.PersistentClient(
     #     path="/Users/vinayakkannan/Desktop/Projects/FactChecker/FactChecker/Clustering/Clustering/Chroma")
     chroma_client = None
-    pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
-
-    # Get a collection object from an existing collection, by name. If it doesn't exist, create it.
-
+    
     def __init__(self, n_neighbors: int, min_dist: float, num_components: int, no_umap: bool, time_stamp: str,
                  random_seed: bool = False):
+        # Load API key and initialize OpenAI client
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        print("API Key in __init__:", bool(self.api_key))  # Debug print
+        if self.api_key is None:
+            raise ValueError("OPENAI_API_KEY not found in environment variables")
+        self.client = OpenAI(api_key=self.api_key)
+        
+        # Initialize Pinecone
+        self.pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
         self.embedding_collection = self.pc.Index("factchecker")
+        
+        # Other initializations
         self.n_neighbors = n_neighbors
         self.min_dist = min_dist
         self.num_components = num_components
