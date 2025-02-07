@@ -289,7 +289,7 @@ class ClusterAndPredict:
         # print(f'Percentage of 60% confidence: {self.percentage_60_confidence}')
 
     def get_all_performance_metrics(self) -> object:
-        self.score([], [])
+        # self.score([], [])
         return {
             'accuracy': self.accuracy,
             'accuracy_not_including_fours': self.accuracy_not_including_fours,

@@ -8,7 +8,7 @@ from Testing.ParameterCreator import ParameterCreator
 import boto3
 from io import BytesIO
 
-def test_single_claim_processing(test_claim:str):
+def test_single_claim_scoreprocessing(test_claim:str):
     # 1. Create sample training data
     s3_bucket = "sagemaker-us-east-1-390403859474"
 

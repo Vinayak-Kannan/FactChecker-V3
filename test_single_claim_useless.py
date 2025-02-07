@@ -6,13 +6,10 @@ from ClusterAndPredict.ClusterAndPredict import ClusterAndPredict
 import pandas as pd
 from Testing.ParameterCreator import ParameterCreator
 import boto3
-from io import BytesIO
 import json
-import sys, logging
-logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+from io import BytesIO
 
-
-def main(test_claim:str):
+def test_single_claim_processing(test_claim:str):
     # 1. Create sample training data
     s3_bucket = "sagemaker-us-east-1-390403859474"
 
@@ -25,7 +22,8 @@ def main(test_claim:str):
         return
 
     # add test_claim to train_df
-    new_record_df = pd.DataFrame({'text': [test_claim], 'veracity': [1]})
+    new_record_df = pd.DataFrame({'text': [test_claim], 'veracity': [0]})
+    train_df = pd.concat([train_df, new_record_df], ignore_index=True)
 
     # 2. Initialize and fit the model
     for param in params:
@@ -35,30 +33,42 @@ def main(test_claim:str):
         del param['size_of_dataset']
         del param['use_only_CARD']
         model = ClusterAndPredict(**param, train_df=train_df)
-        model.fit(new_record_df['text'].tolist(), new_record_df['veracity'].tolist())
+        model.fit(train_df['text'].tolist(), train_df['veracity'].tolist())
+        print(cluster_df)
+        model.score([], [])
         object_output = model.get_all_performance_metrics()
         cluster_df = object_output['cluster_df']
-        print("This is the cluster_df", cluster_df)
-
-
-    cluster_df = model.generate_explanations_and_similar_for_each_claim(cluster_df, "predict", "cluster", "text")
 
     # get the test_claim from the cluster_df
     filtered_df = cluster_df[cluster_df['text'] == test_claim]
     filtered_dict = filtered_df.to_dict(orient='records')
-    print(filtered_dict)
     if filtered_dict:
         result = filtered_dict[0]
     else:
         result = {}
+    print("Output result:", result)
 
+    # models = []
+    # for param in params:
+    #     filtered_param = param.copy()
+    #     for key in ['size_of_dataset', 'use_only_CARD']:
+    #         filtered_param.pop(key, None)
+    #
+    #     model = ClusterAndPredict(**filtered_param, train_df=train_df)
+    #
+    #     model.fit(train_df['text'].tolist(), train_df['veracity'].tolist())
+    #
+    #     result = model.process_single_claim(test_claim, generate_detailed_explanation=True)
+    #
+    #     models.append(model)
+    #     print(f"Processed claim with parameters: {filtered_param}")
 
     # 3. Test data
     print("\n=== Testing Basic Predictions ===")
-    print("Output result:")
+
     return {
-        "claim": result.get("text", test_claim),
-        "prediction": result.get("predicted_veracity", "Error"),
+        "claim": result.get("claim", test_claim),
+        "prediction": result.get("prediction", "Error"),
         "cluster_name": result.get("cluster_name", "N/A"),
         "explanation": result.get("detailed_explanation", "N/A"),
         "similar_claims": result.get("similar_claims", "N/A")
@@ -112,12 +122,5 @@ def clean_columns_for_s3(cluster_df):
     cluster_df['id'] = cluster_df['text'].str[:100].str.capitalize()
     return cluster_df
 
-
-if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        test_claim = sys.argv[1]
-    else:
-        test_claim = "Default test claim"
-    result = main(test_claim)
-    # turn result into JSON
-    print(json.dumps(result))
+# if __name__ == "__main__":
+#     test_single_claim_processing()
