@@ -52,17 +52,20 @@ def main(test_claim:str):
     else:
         result = {}
 
-
     # 3. Test data
-    print("\n=== Testing Basic Predictions ===")
-    print("Output result:")
-    return {
+    
+    result_dict = {
         "claim": result.get("text", test_claim),
         "prediction": result.get("predicted_veracity", "Error"),
         "cluster_name": result.get("cluster_name", "N/A"),
         "explanation": result.get("detailed_explanation", "N/A"),
         "similar_claims": result.get("similar_claims", "N/A")
     }
+
+    print("Output Results:")
+    print(json.dumps(result_dict))
+
+    return 0
 
 
 def load_s3_data() -> pd.DataFrame:
