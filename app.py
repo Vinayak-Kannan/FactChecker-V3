@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 from ClusterAndPredict.ClusterAndPredict import ClusterAndPredict
-from test_single_claim import test_single_claim_processing, load_s3_data
+from test_single_claim import load_s3_data
 from dotenv import load_dotenv
 
 load_dotenv()  # 默认加载当前工作目录下的 .env 文件

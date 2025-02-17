@@ -10,7 +10,8 @@ from io import BytesIO
 import json
 import sys, logging
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-
+import joblib
+import hashlib
 
 def main(test_claim:str):
     # 1. Create sample training data
@@ -34,12 +35,28 @@ def main(test_claim:str):
         size_of_dataset = param['size_of_dataset']
         del param['size_of_dataset']
         del param['use_only_CARD']
-        model = ClusterAndPredict(**param, train_df=train_df)
-        model.fit(new_record_df['text'].tolist(), new_record_df['veracity'].tolist())
+        model_exists = check_model_exists(s3_bucket, param)
+
+        if not model_exists:
+            print("Training new model.")
+            # Create and fit model
+            model = ClusterAndPredict(**param, train_df=train_df)
+            model.fit_only(
+                new_record_df['text'].tolist(),
+                new_record_df['veracity'].tolist()
+            )
+            save_model_to_s3(model, s3_bucket, param)
+        else:
+            print("Loading existing model.")
+            model = load_model_from_s3(s3_bucket, param)
+            model.predict_only(
+                new_record_df['text'].tolist(),
+                new_record_df['veracity'].tolist()
+            )
+
         object_output = model.get_all_performance_metrics()
         cluster_df = object_output['cluster_df']
         print("This is the cluster_df", cluster_df)
-
 
     cluster_df = model.generate_explanations_and_similar_for_each_claim(cluster_df, "predict", "cluster", "text")
 
@@ -66,6 +83,62 @@ def main(test_claim:str):
     print(json.dumps(result_dict))
 
     return 0
+
+
+def save_model_to_s3(model: ClusterAndPredict, bucket: str, params: dict):
+    """Save model to S3 bucket"""
+    buffer = BytesIO()
+    joblib.dump(model, buffer)
+    buffer.seek(0)
+
+    s3 = boto3.client('s3')
+    s3.upload_fileobj(
+        buffer,
+        bucket,
+        generate_model_key(params)
+    )
+    print(f"Model saved to s3://{bucket}/{generate_model_key(params)}")
+
+
+def load_model_from_s3(bucket: str, params: dict) -> ClusterAndPredict:
+    """Load model from S3 bucket"""
+    s3 = boto3.client('s3')
+    buffer = BytesIO()
+
+    try:
+        s3.download_fileobj(
+            bucket,
+            generate_model_key(params),
+            buffer
+        )
+        buffer.seek(0)
+        model = joblib.load(buffer)
+        print(f"Model loaded from s3://{bucket}/{generate_model_key(params)}")
+        return model
+    except Exception as e:
+        print(f"Model loading failed: {str(e)}")
+        raise
+
+def check_model_exists(bucket: str, params: dict) -> bool:
+    """Examine S3 bucket to determine if model already exists"""
+    s3 = boto3.client('s3')
+
+    # generate unique key for model
+    model_key = generate_model_key(params)
+
+    try:
+        s3.head_object(Bucket=bucket, Key=model_key)
+        return True
+    except s3.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            return False
+        raise
+
+
+def generate_model_key(params: dict) -> str:
+    """generate unique key for model"""
+    param_str = json.dumps(params, sort_keys=True)
+    return f"models/{hashlib.md5(param_str.encode()).hexdigest()}.joblib"
 
 
 def load_s3_data() -> pd.DataFrame:
