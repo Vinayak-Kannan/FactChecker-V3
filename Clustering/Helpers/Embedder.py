@@ -15,6 +15,11 @@ import os
 from pinecone import Pinecone, ServerlessSpec, FetchResponse
 
 from umap import UMAP
+import hashlib
+import boto3
+from io import BytesIO
+import json
+import logging
 
 load_dotenv()
 
@@ -37,7 +42,9 @@ class Embedder:
     chroma_client = None
     
     def __init__(self, n_neighbors: int, min_dist: float, num_components: int, no_umap: bool, time_stamp: str,
-                 random_seed: bool = False):
+                 random_seed: bool = False,
+                 s3_bucket: str = None,
+                 existing_umap_model: umap.UMAP = None):
         # Load API key and initialize OpenAI client
         self.api_key = os.getenv("OPENAI_API_KEY")
         print("API Key in __init__:", bool(self.api_key))  # Debug print
@@ -56,6 +63,77 @@ class Embedder:
         self.no_umap = no_umap
         self.time = time_stamp
         self.random_seed = random_seed
+
+        # Load UMAP model if provided
+        self.s3_bucket = s3_bucket or os.getenv("S3_BUCKET", "default-bucket")
+        self.umap_model = existing_umap_model
+        self.current_umap_params = {
+            "n_neighbors": n_neighbors,
+            "min_dist": min_dist,
+            "n_components": num_components,
+            "random_state": random_seed if random_seed else None
+        }
+
+    def _get_umap_model_key(self):
+        """generate a unique key for the UMAP model based on its parameters"""
+        params_str = json.dumps(self.current_umap_params, sort_keys=True)
+        return f"umap_models/{hashlib.md5(params_str.encode()).hexdigest()}.joblib"
+
+    # def _save_umap_model(self):
+    #     """save UMAP model to S3"""
+    #     if not self.umap_model:
+    #         return
+    #
+    #     buffer = BytesIO()
+    #     joblib.dump(self.umap_model, buffer)
+    #     buffer.seek(0)
+    #
+    #     s3 = boto3.client('s3')
+    #     try:
+    #         s3.upload_fileobj(buffer, self.s3_bucket, self._get_umap_model_key())
+    #         logging.info(f"UMAP model saved to s3://{self.s3_bucket}/{self._get_umap_model_key()}")
+    #     except Exception as e:
+    #         logging.error(f"Failed to save UMAP model: {str(e)}")
+    #
+    # def _load_umap_model(self):
+    #     """load UMAP model from S3"""
+    #     s3 = boto3.client('s3')
+    #     try:
+    #         response = s3.get_object(Bucket=self.s3_bucket, Key=self._get_umap_model_key())
+    #         buffer = BytesIO(response['Body'].read())
+    #         model = joblib.load(buffer)
+    #         logging.info(f"Loaded UMAP model from s3://{self.s3_bucket}/{self._get_umap_model_key()}")
+    #         return model
+    #     except s3.exceptions.NoSuchKey:
+    #         logging.info("No existing UMAP model found")
+    #         return None
+    #     except Exception as e:
+    #         logging.error(f"Failed to load UMAP model: {str(e)}")
+    #         return None
+
+    def get_reduced_embeddings(self, embeddings: np.ndarray) -> np.ndarray:
+        """apply UMAP to reduce the dimensionality of the embeddings"""
+        if self.no_umap:
+            return embeddings
+
+        if embeddings.shape[1] != self.num_components and not self.no_umap:
+            raise ValueError(f"Input parameters {embeddings.shape[1]} and {self.num_components} not matching")
+
+        # check if UMAP model is already loaded
+        if not self.umap_model:
+            self.umap_model = self._load_umap_model()
+
+        if not self.umap_model:
+            logging.info("Training new UMAP model...")
+            self.umap_model = umap.UMAP(**self.current_umap_params)
+            reduced_embeddings = self.umap_model.fit_transform(embeddings)
+            self._save_umap_model()
+        else:
+            logging.info("Using existing UMAP model")
+            reduced_embeddings = self.umap_model.transform(embeddings)
+
+        return reduced_embeddings
+
 
     def format_text(self, text: str) -> str:
         text = re.sub(r'[^\x00-\x7F]+', '', text)

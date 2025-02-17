@@ -20,6 +20,15 @@ import tensorflow as tf
 from tensorflow.python import keras
 from tensorflow.python.keras.layers import Dense
 
+import botocore
+from botocore.exceptions import ClientError
+
+import boto3
+import hashlib
+import json
+import logging
+
+
 
 class ClaimClassifier:
     model = None
@@ -40,6 +49,7 @@ class ClaimClassifier:
         self.num_components = num_components
         self.embedding_collection_reduced = self.pc.Index("factchecker-reduced")
 
+        self.bucket_name = "sagemaker-us-east-1-390403859474"
 
     def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], claims_veracity: list[int], k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float, break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
             list[float], list[float], list[float]):
@@ -74,6 +84,7 @@ class ClaimClassifier:
         old_veracity = train_df['veracity'].tolist()
         old_predict = [False] * len(old_claims)
         current_embeddings_predict = []
+        print("Getting embeddings for train_df claims...")
         current_embeddings_predict = self.EmbeddingObject.embed_claims_batch(old_claims, old_veracity)
             # current_embeddings_predict.append(self.EmbeddingObject.embed_claim_to_predict(old_claims[i], get_reduced_dimesions=False, veracity=old_veracity[i]))
 
@@ -111,7 +122,47 @@ class ClaimClassifier:
             print(parametric_umap)
             if parametric_umap:
                 print("Running parametric supervised umap...")
-                
+                param_umap_s3_key = self._generate_param_umap_s3_key()
+
+                s3 = boto3.client("s3")
+                model_already_exists = False
+                try:
+                    s3.head_object(Bucket=self.bucket_name, Key=param_umap_s3_key)
+                    model_already_exists = True
+                except botocore.exceptions.ClientError as e:
+                    if e.response["Error"]["Code"] == "404":
+                        model_already_exists = False
+                    else:
+                        raise
+
+                if model_already_exists:
+                    # **  If a model file for Parametric UMAP already exists, download and load from S3   **
+                    local_model_path = f"/tmp/param_umap_{self.num_components}.h5"
+                    logging.info(f"Downloading param UMAP model from s3://{self.bucket_name}/{param_umap_s3_key}...")
+                    s3.download_file(self.bucket_name, param_umap_s3_key, local_model_path)
+
+                    # 加载
+                    param_umap_encoder = ParametricUMAPEncoder.load(local_model_path)
+                    logging.info("Loaded param UMAP from S3, now transform embedding_np...")
+                    embedding_np = param_umap_encoder.transform(embedding_np)
+                else:
+                    # ** If it doesn't exist, train a new one and save it to S3 **
+                    logging.info("No existing param UMAP model found. Training a new one...")
+
+                    # 这里 y_tensor 是 -1/1/3... 你可以根据需要做进一步处理
+                    # 此处我们仅将embedding_np和y_tensor交给ParametricUMAPEncoder
+                    param_umap_encoder = ParametricUMAPEncoder(self.num_components,
+                                                               embedding_np,
+                                                               np.array(y_tensor),
+                                                               trained=False,
+                                                               seed=seed)
+                    embedding_np = param_umap_encoder.transform(embedding_np)
+
+                    # Save to S3 after training
+                    local_model_path = f"/tmp/param_umap_{self.num_components}.h5"
+                    param_umap_encoder.save(local_model_path)
+                    s3.upload_file(local_model_path, self.bucket_name, param_umap_s3_key)
+                    logging.info(f"New param UMAP model uploaded to s3://{self.bucket_name}/{param_umap_s3_key}")
 
                 
                 # # save embedding_np and y_tensor 
@@ -132,8 +183,8 @@ class ClaimClassifier:
                 # reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
                 # embedding_np = tf.convert_to_tensor(embedding_np)
                 # y_tensor = tf.convert_to_tensor(y_tensor)
-                param_umap_encoder = ParametricUMAPEncoder(self.num_components, embedding_np, y_tensor, trained=True, seed=seed)
-                embedding_np = param_umap_encoder.transform()
+                # param_umap_encoder = ParametricUMAPEncoder(self.num_components, embedding_np, y_tensor, trained=True, seed=seed)
+                # embedding_np = param_umap_encoder.transform()
 
             # if supervised_umap:
             #     print("Running supervised umap...")
@@ -199,6 +250,13 @@ class ClaimClassifier:
 
 
         return labels, sds, confidences, temp_df
+
+    def _generate_param_umap_s3_key(self):
+        """
+        Generate a unique key for the parametric umap model
+        """
+        param_str = f"param_umap_{self.num_components}_{self.min_dist}_{self.n_neighbors}"
+        return f"umap_models/param_umap_{hashlib.md5(param_str.encode()).hexdigest()}.h5"
 
     def break_clusters_down(self, labels, veracities: list[int], embeddings: list[list[float]], threshold: float):
         if not isinstance(labels, list):

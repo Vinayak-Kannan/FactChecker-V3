@@ -14,9 +14,16 @@ from openai import OpenAI
 from pinecone import ServerlessSpec, Pinecone
 from sklearn import metrics
 from tqdm import tqdm
+import joblib
+import hashlib
+from io import BytesIO
+import boto3
+import json
+import sys, logging
 
 from Clustering.Helpers.Embedder import Embedder
 from Scraping.Helpers.ClaimClassifier import ClaimClassifier
+
 
 load_dotenv()
 
@@ -40,7 +47,18 @@ class ClusterAndPredict:
                  break_further: bool = True,
                  random_seed_val: int = 23,
                  use_hdbscan: bool = True,
-                 train_df: pd.DataFrame = pd.DataFrame()):
+                 train_df: pd.DataFrame = pd.DataFrame(),
+                 s3_bucket: str = "sagemaker-us-east-1-390403859474",
+                 umap_params: dict = None,
+                 cluster_params: dict = None):
+
+        # Store the parameters
+        self.s3_bucket = s3_bucket
+        self.umap_params = umap_params or {}
+        self.cluster_params = cluster_params or {}
+        self.umap_model = None  # UMAP model parameters
+        self.model_checksum = None  # Checksum of the model
+
         # pd.set_option('future.no_silent_downcasting', True)
         self.test_text = None
         self.EmbedderObject = None
@@ -122,6 +140,7 @@ class ClusterAndPredict:
         self.pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
 
 
+
     def get_params(self, deep=True):
         return {
             'min_cluster_size': self.min_cluster_size,
@@ -179,6 +198,88 @@ class ClusterAndPredict:
 
         self.test_text = X
         self.actual_veracities = y
+
+    def fit_only(self, X: list, y: list):
+        # Passing S3 configuration when initializing Embedder
+        self.EmbedderObject = Embedder(
+            n_neighbors=self.n_neighbors,
+            min_dist=self.min_dist,
+            num_components=self.num_components,
+            no_umap=self.no_umap,
+            time_stamp=self.time_stamp,
+            random_seed=self.random_seed,
+            s3_bucket=self.s3_bucket,
+            **self.umap_params
+        )
+
+
+        # Get Embedding Vector
+        embeddings = self.EmbedderObject.embed_claims_batch(X, y)
+
+        # self.__cluster_ground_truth()
+        ClaimClassifierObject = ClaimClassifier(
+            EmbeddingObject=self.EmbedderObject,
+            path_to_model='../../Clustering/Models/',
+            time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
+            min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
+
+        logging.info(f"Current UMAP params: {self.umap_params}")
+
+        print("Fitting")
+        print(X, y)
+        # cluster_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster
+        predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
+            self.train_df,
+            X,
+            y,
+            self.k,
+            self.use_weightage,
+            self.supervised_umap,
+            self.parametric_umap,
+            self.threshold_break,
+            self.break_further,
+            self.random_seed_val,
+            self.use_hdbscan,
+            not self.no_umap
+        )
+        self.clusters_df = cluster_df
+
+        self.predicted_means = predicted_mean
+        self.predicted_sds = predicted_sd
+        self.confidences = predicted_confidence
+
+        self.test_text = X
+        self.actual_veracities = y
+
+    def predict_only(self, X: list, y: list):
+        """Only predict the veracity of the claims, do not fit the model"""
+        # make sure the model is initialized
+        if not self.EmbedderObject:
+            raise ValueError("The model has not been initialized. Please call fit() before predict()")
+
+        # Directly embed the claims
+        ClaimClassifierObject = ClaimClassifier(EmbeddingObject=self.EmbedderObject,
+            path_to_model='../../Clustering/Models/',
+            time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
+            min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
+
+        predicted_mean, _, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(self.train_df,
+            X,
+            y,
+            self.k,
+            self.use_weightage,
+            self.supervised_umap,
+            self.parametric_umap,
+            self.threshold_break,
+            self.break_further,
+            self.random_seed_val,
+            self.use_hdbscan,
+            not self.no_umap)
+
+        # update the results
+        self.clusters_df = cluster_df
+        self.predicted_means = predicted_mean
+        self.confidences = predicted_confidence
 
     def score(self, _, __):
         self.accuracy = self.calculate_accuracy(self.clusters_df)
@@ -841,3 +942,87 @@ class ClusterAndPredict:
 
         return result
 
+    def _get_model_key(self):
+        """Generate a unique key for the UMAP model based on the parameters"""
+        params_str = json.dumps({
+            **self.umap_params,
+            "n_neighbors": self.n_neighbors,
+            "min_dist": self.min_dist,
+            "num_components": self.num_components
+        }, sort_keys=True)
+        return f"umap_models/{hashlib.md5(params_str.encode()).hexdigest()}.joblib"
+
+    def _save_model(self):
+        """Save the model to S3 bucket"""
+        if not self.umap_model:
+            return
+
+        buffer = BytesIO()
+        joblib.dump(self.umap_model, buffer)
+        buffer.seek(0)
+
+        s3 = boto3.client('s3')
+        try:
+            s3.upload_fileobj(buffer, self.s3_bucket, self._get_model_key())
+            logging.info(f"Model saved to s3://{self.s3_bucket}/{self._get_model_key()}")
+        except Exception as e:
+            logging.error(f"Failed to save model: {str(e)}")
+
+    def _load_model(self):
+        """Load the model from S3 bucket"""
+        s3 = boto3.client('s3')
+        try:
+            response = s3.get_object(Bucket=self.s3_bucket, Key=self._get_model_key())
+            buffer = BytesIO(response['Body'].read())
+            model = joblib.load(buffer)
+            logging.info(f"Loaded model from s3://{self.s3_bucket}/{self._get_model_key()}")
+            return model
+        except s3.exceptions.NoSuchKey:
+            logging.info("No existing model found, will train new one")
+            return None
+        except Exception as e:
+            logging.error(f"Failed to load model: {str(e)}")
+            return None
+
+    def __getstate__(self):
+        """
+        Returns the state of the serializable object. Here we copy __dict__.
+        and then set some non-serializable properties (such as OpenAI client, Pinecone client, chroma_client, and possibly thread locks) to None.
+        """
+        state = self.__dict__.copy()
+        if 'client' in state:
+            state['client'] = None
+        if 'pc' in state:
+            state['pc'] = None
+        if 'chroma_client' in state:
+            state['chroma_client'] = None
+        if 'lock' in state:
+            state['lock'] = None
+        if 'EmbedderObject' in state:
+            state['EmbedderObject'] = None
+        if 'umap_model' in state:
+            state['umap_model'] = None
+        if 'ClusterEmbeddingsObject' in state:
+            state['ClusterEmbeddingsObject'] = None
+        return state
+
+    def __setstate__(self, state):
+        """
+        Restore the object from its saved state and reinitialize those properties that were culled before serialization.
+        Examples include recreating the OpenAI client, the Pinecone client, or a new thread lock.
+        """
+        self.__dict__.update(state)
+
+        self.client = OpenAI(api_key=os.getenv("OPEN_AI_KEY"))
+        self.pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
+
+        self.chroma_client = None
+        self.EmbedderObject = Embedder(n_neighbors=self.n_neighbors, min_dist=self.min_dist,
+                                       num_components=self.num_components, no_umap=self.no_umap,
+                                       time_stamp=self.time_stamp, random_seed=self.random_seed)
+        self.umap_model = None
+        self.ClusterEmbeddingsObject = None
+
+        import threading
+        if 'lock' not in self.__dict__ or self.__dict__['lock'] is None:
+            self.lock = threading.RLock()
