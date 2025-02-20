@@ -2,7 +2,6 @@ import os
 import uuid
 from operator import itemgetter
 
-
 import gensim
 import nltk
 import pandas as pd
@@ -24,7 +23,6 @@ import sys, logging
 from Clustering.Helpers.Embedder import Embedder
 from Scraping.Helpers.ClaimClassifier import ClaimClassifier
 
-
 load_dotenv()
 
 """
@@ -33,6 +31,7 @@ load_dotenv()
 4 - No prediction
 5 - Predicts fell into their own cluster only. No predicts
 """
+
 
 class ClusterAndPredict:
     def __init__(self, min_cluster_size: int = 5, min_samples: int = 1, n_neighbors: int = 200, min_dist: float = 0,
@@ -100,7 +99,6 @@ class ClusterAndPredict:
         # Filter out non-numeric values in uuid
         self.time_stamp = ''.join(filter(lambda x: x.isdigit(), self.time_stamp))
 
-
         # Performance Metrics
         self.accuracy = 0
         self.percentage_of_fours = 0
@@ -139,8 +137,6 @@ class ClusterAndPredict:
 
         self.pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
 
-
-
     def get_params(self, deep=True):
         return {
             'min_cluster_size': self.min_cluster_size,
@@ -162,7 +158,7 @@ class ClusterAndPredict:
         return self
 
     def fit(self, X: list, y: list):
-        
+
         self.EmbedderObject = Embedder(n_neighbors=self.n_neighbors, min_dist=self.min_dist,
                                        num_components=self.num_components, no_umap=self.no_umap,
                                        time_stamp=self.time_stamp, random_seed=self.random_seed)
@@ -172,58 +168,6 @@ class ClusterAndPredict:
             path_to_model='../../Clustering/Models/',
             time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
             min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
-
-        print("Fitting")
-        print(X, y)
-        # cluster_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster
-        predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
-         self.train_df,
-         X,
-         y,
-         self.k,
-         self.use_weightage,
-         self.supervised_umap,
-         self.parametric_umap,
-         self.threshold_break,
-         self.break_further,
-         self.random_seed_val,
-         self.use_hdbscan,
-         not self.no_umap
-        )
-        self.clusters_df = cluster_df
-
-        self.predicted_means = predicted_mean
-        self.predicted_sds = predicted_sd
-        self.confidences = predicted_confidence
-
-        self.test_text = X
-        self.actual_veracities = y
-
-    def fit_only(self, X: list, y: list):
-        # Passing S3 configuration when initializing Embedder
-        self.EmbedderObject = Embedder(
-            n_neighbors=self.n_neighbors,
-            min_dist=self.min_dist,
-            num_components=self.num_components,
-            no_umap=self.no_umap,
-            time_stamp=self.time_stamp,
-            random_seed=self.random_seed,
-            s3_bucket=self.s3_bucket,
-            **self.umap_params
-        )
-
-
-        # Get Embedding Vector
-        embeddings = self.EmbedderObject.embed_claims_batch(X, y)
-
-        # self.__cluster_ground_truth()
-        ClaimClassifierObject = ClaimClassifier(
-            EmbeddingObject=self.EmbedderObject,
-            path_to_model='../../Clustering/Models/',
-            time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
-            min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
-
-        logging.info(f"Current UMAP params: {self.umap_params}")
 
         print("Fitting")
         print(X, y)
@@ -251,41 +195,11 @@ class ClusterAndPredict:
         self.test_text = X
         self.actual_veracities = y
 
-    def predict_only(self, X: list, y: list):
-        """Only predict the veracity of the claims, do not fit the model"""
-        # make sure the model is initialized
-        if not self.EmbedderObject:
-            raise ValueError("The model has not been initialized. Please call fit() before predict()")
-
-        # Directly embed the claims
-        ClaimClassifierObject = ClaimClassifier(EmbeddingObject=self.EmbedderObject,
-            path_to_model='../../Clustering/Models/',
-            time_stamp=self.time_stamp, min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
-            min_dist=self.min_dist, num_components=self.num_components, n_neighbors=self.n_neighbors)
-
-        predicted_mean, _, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(self.train_df,
-            X,
-            y,
-            self.k,
-            self.use_weightage,
-            self.supervised_umap,
-            self.parametric_umap,
-            self.threshold_break,
-            self.break_further,
-            self.random_seed_val,
-            self.use_hdbscan,
-            not self.no_umap)
-
-        # update the results
-        self.clusters_df = cluster_df
-        self.predicted_means = predicted_mean
-        self.confidences = predicted_confidence
-
     def score(self, _, __):
         self.accuracy = self.calculate_accuracy(self.clusters_df)
         self.accuracy_not_including_fours = self.calculate_accuracy_excluding_no_predict(self.clusters_df)
-        self.percentage_of_fours, self.percentage_of_no_clusters_in_ground_truth = self.calculate_percentage_of_four_and_five(self.clusters_df)
-
+        self.percentage_of_fours, self.percentage_of_no_clusters_in_ground_truth = self.calculate_percentage_of_four_and_five(
+            self.clusters_df)
 
         for i, value in enumerate(self.predicted_means):
             claim = self.test_text[i]
@@ -302,29 +216,33 @@ class ClusterAndPredict:
             # if value == 4 and cluster != -1:
             #     raise ValueError("Cluster should be -1 if predicted value is 4")
 
-
         # Fill in cluster accuracy and number wrong in clusters_df
         self.clusters_df['num_correct_in_cluster'] = 0
         self.clusters_df['total_in_cluster'] = 0
         self.clusters_df['cluster_accuracy'] = 0
         self.clusters_df['num_correct_in_cluster'] = (
-                    (self.clusters_df['veracity'] == self.clusters_df['predicted_veracity']))
+            (self.clusters_df['veracity'] == self.clusters_df['predicted_veracity']))
         self.clusters_df['num_correct_in_cluster'] = self.clusters_df.groupby('cluster')[
             'num_correct_in_cluster'].transform('sum')
         self.clusters_df['total_in_cluster'] = self.clusters_df.groupby('cluster')['cluster'].transform('size')
         # Fill Nan in total_in_cluster with 1
         self.clusters_df['total_in_cluster'] = self.clusters_df['total_in_cluster'].fillna(0)
-        self.clusters_df['cluster_accuracy'] = self.clusters_df['num_correct_in_cluster'].div(self.clusters_df['total_in_cluster'], fill_value=1)
+        self.clusters_df['cluster_accuracy'] = self.clusters_df['num_correct_in_cluster'].div(
+            self.clusters_df['total_in_cluster'], fill_value=1)
         # In cluster_accuracy, fill inf or Nan with 1
-        self.clusters_df['cluster_accuracy'] = self.clusters_df['cluster_accuracy'].replace([float('inf'), float('nan')], 1)
+        self.clusters_df['cluster_accuracy'] = self.clusters_df['cluster_accuracy'].replace(
+            [float('inf'), float('nan')], 1)
 
         # clusters_df columsn - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
         self.precision_on_three, self.recall_on_three = self.calculate_precision_recall_for_a_value(self.clusters_df, 3)
         self.precision_on_one, self.recall_on_one = self.calculate_precision_recall_for_a_value(self.clusters_df, 1)
         self.precision, self.recall = self.calculate_precision_recall(self.clusters_df)
-        self.precision_on_three_excluding_fours, self.recall_on_three_excluding_fours = self.calculate_precision_recall_for_three_excluding_no_predict(self.clusters_df)
-        self.precision_on_one_excluding_fours, self.recall_on_one_excluding_fours = self.calculate_precision_recall_for_one_excluding_no_predict(self.clusters_df)
-        self.precision_no_fours, self.recall_no_fours = self.calculate_weighted_precision_recall_excluding_no_predict(self.clusters_df)
+        self.precision_on_three_excluding_fours, self.recall_on_three_excluding_fours = self.calculate_precision_recall_for_three_excluding_no_predict(
+            self.clusters_df)
+        self.precision_on_one_excluding_fours, self.recall_on_one_excluding_fours = self.calculate_precision_recall_for_one_excluding_no_predict(
+            self.clusters_df)
+        self.precision_no_fours, self.recall_no_fours = self.calculate_weighted_precision_recall_excluding_no_predict(
+            self.clusters_df)
 
         # Store confidence scores and report accuracy based on confidence. 5 means confidence not high enough
         predictions_90_confidence = []
@@ -507,16 +425,16 @@ class ClusterAndPredict:
                         change. Your topic cluster name should be as different from the other topic clusters which are
                         listed below:
                         {", ".join(results)}
-                        
+
                         Up to 10 of the cluster's claims are: 
                         {", ".join(self.ground_truth_df[self.ground_truth_df['cluster'] == cluster_local]['claim'].sample(
                             min(10, len_cluster)).tolist())
                         }
-                        
+
                         The top 5 terms with the highest TF-IDF scores you should use in the description for 
                         this cluster are: {dictionary[top_terms[0][0]]}, {dictionary[top_terms[1][0]]}, 
                         {dictionary[top_terms[2][0]]}, {dictionary[top_terms[3][0]]}, {dictionary[top_terms[4][0]]}
-                        
+
                         Your one sentence description should be at most 10 words and use the TF-IDF terms. Do not write more than 10 words.
                         """
                     },
@@ -553,7 +471,7 @@ class ClusterAndPredict:
     def calculate_accuracy_excluding_no_predict(self, cluster_df):
         # clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, num_correct_in_cluster, total_in_cluster, cluster_accuracy
 
-	# Print value counts for predict
+        # Print value counts for predict
         cluster_df = cluster_df[cluster_df['predict']]
         # Filter where predicted veracity equals 1 or 3
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
@@ -575,7 +493,7 @@ class ClusterAndPredict:
     def calculate_precision_recall_for_a_value(self, cluster_df, value: int):
         if len(cluster_df) == 0:
             raise ValueError("No claims in cluster_df")
-        
+
         # Replace all 5 in predicted_veracity with 4
         cluster_df.loc[cluster_df['predicted_veracity'] == 5, 'predicted_veracity'] = 4
 
@@ -585,7 +503,6 @@ class ClusterAndPredict:
         cluster_df['predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
         cluster_df['veracity'] = cluster_df['veracity'].astype(int)
 
-        
         # Filter df to where veracity is value
         cluster_df = cluster_df[cluster_df['veracity'] == value]
         # Replace all vlaues where predicted_veracity is 4 with 1 if value is 3 and 3 if value is 1
@@ -602,7 +519,7 @@ class ClusterAndPredict:
         #     mapped_values_predicted = cluster_df['predicted_veracity'].map({1: 0, 3: 1, "1": 0, "3": 1})
         #     print(cluster_df['predicted_veracity'].value_counts())
         #     cluster_df.loc[:, 'predicted_veracity'] = mapped_values_predicted.astype(int)
-        
+
         # pos_value = 0
         # if value == 3:
         #     pos_value = 1
@@ -610,13 +527,15 @@ class ClusterAndPredict:
         # If count of pos_value in veracity is 0, return NaN for precision and recall
         if cluster_df['veracity'].value_counts().get(value) == None:
             return "No values with this veracity were possible to predict", "No values with this veracity were possible to predict"
-        
 
-        precision = metrics.precision_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary', pos_label=value)
-        recall = metrics.recall_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary', pos_label=value)
-        
+        precision = metrics.precision_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary',
+                                            pos_label=value)
+        recall = metrics.recall_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='binary',
+                                      pos_label=value)
+
         # Get count of true positives
-        true_positives = cluster_df[(cluster_df['veracity'] == value) & (cluster_df['predicted_veracity'] == value)].shape[0]
+        true_positives = \
+        cluster_df[(cluster_df['veracity'] == value) & (cluster_df['predicted_veracity'] == value)].shape[0]
         if (precision == 0 or recall == 0):
             if true_positives == 0:
                 print("sad...")
@@ -629,20 +548,21 @@ class ClusterAndPredict:
                 raise ValueError("Precision or recall is 0 (error)")
 
         return precision, recall
-    
+
     def calculate_precision_recall(self, cluster_df):
         if len(cluster_df) == 0:
             raise ValueError("No claims in cluster_df")
-        
+
         # Filter df to where predict is true
         cluster_df = cluster_df[cluster_df['predict']]
-        
+
         cluster_df['predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
         cluster_df['veracity'] = cluster_df['veracity'].astype(int)
-        
-        cluster_df.loc[(cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 3), 'predicted_veracity'] = 1
-        cluster_df.loc[(cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 1), 'predicted_veracity'] = 3
 
+        cluster_df.loc[
+            (cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 3), 'predicted_veracity'] = 1
+        cluster_df.loc[
+            (cluster_df['predicted_veracity'] == 4) & (cluster_df['veracity'] == 1), 'predicted_veracity'] = 3
 
         # Check if veracity and predicted_veracity only contain 0 and 1
         # if not cluster_df['veracity'].isin([1, 0]).all() or not cluster_df['predicted_veracity'].isin([1, 0]).all():
@@ -650,13 +570,14 @@ class ClusterAndPredict:
         #     cluster_df.loc[:, 'veracity'] = mapped_values.astype(int)
         #     mapped_values_predicted = cluster_df['predicted_veracity'].map({1: 0, 3: 1, "1": 0, "3": 1})
         #     cluster_df.loc[:, 'predicted_veracity'] = mapped_values_predicted.astype(int)
-        
-        precision = metrics.precision_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='weighted')
+
+        precision = metrics.precision_score(cluster_df['veracity'], cluster_df['predicted_veracity'],
+                                            average='weighted')
         recall = metrics.recall_score(cluster_df['veracity'], cluster_df['predicted_veracity'], average='weighted')
 
         # Get count of true positives where veracity equals predicted_veracity
         true_positives = cluster_df[(cluster_df['veracity'] == cluster_df['predicted_veracity'])].shape[0]
-        
+
         if precision == 0 or recall == 0:
             if true_positives == 0:
                 print("sad...")
@@ -675,27 +596,27 @@ class ClusterAndPredict:
         cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
         return self.calculate_precision_recall_for_a_value(cluster_df, 3)
-    
+
     def calculate_precision_recall_for_one_excluding_no_predict(self, cluster_df):
         cluster_df = cluster_df[cluster_df['predict']]
         cluster_df.loc[:, 'veracity'] = cluster_df['veracity'].astype(int)
         cluster_df.loc[:, 'predicted_veracity'] = cluster_df['predicted_veracity'].astype(int)
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
         return self.calculate_precision_recall_for_a_value(cluster_df, 1)
-    
+
     def calculate_weighted_precision_recall_excluding_no_predict(self, cluster_df):
         cluster_df = cluster_df[cluster_df['predict']]
-        
+
         cluster_df.loc[:, 'veracity'] = cluster_df.loc[:, 'veracity'].astype(int)
         cluster_df.loc[:, 'predicted_veracity'] = cluster_df.loc[:, 'predicted_veracity'].astype(int)
-        
+
         cluster_df = cluster_df[cluster_df['predicted_veracity'].isin([1, 3])]
         return self.calculate_precision_recall(cluster_df)
 
-
-    def generate_explanations_and_similar_for_each_claim(self, cluster_df, prediction_column, cluster_column, claim_column, generate_explanations: bool = False):
+    def generate_explanations_and_similar_for_each_claim(self, cluster_df, prediction_column, cluster_column,
+                                                         claim_column, generate_explanations: bool = False):
         """
-        clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster, 
+        clusters_df columns - text, veracity, predict, predicted_veracity, embeddings, cluster,
         num_correct_in_cluster, total_in_cluster, cluster_accuracy
         """
         from tqdm import tqdm
@@ -822,6 +743,7 @@ class ClusterAndPredict:
 
         # Add the new columns to the dataframe
         cluster_df['explanation'] = cluster_df[claim_column].map(explanations)
+
         # Function to process similar claims
         def process_claims(claims):
             sentences = claims.split("\n")
@@ -838,11 +760,12 @@ class ClusterAndPredict:
 
         return cluster_df
 
-
     def clean_columns_for_s3(self, cluster_df):
         # Loop through all 'predicted_veracity' and 1 and 3 to True and False and 4 and 5 to No prediction in a new column called 'cleaned_predicted_veracity'
-        cluster_df['cleaned_predicted_veracity'] = cluster_df['predicted_veracity'].map({1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
-        cluster_df['cleaned_veracity'] = cluster_df['veracity'].map({1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
+        cluster_df['cleaned_predicted_veracity'] = cluster_df['predicted_veracity'].map(
+            {1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
+        cluster_df['cleaned_veracity'] = cluster_df['veracity'].map(
+            {1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
         # Capatalize text column first letter
         cluster_df['text'] = cluster_df['text'].str.capitalize()
         cluster_df['id'] = cluster_df['text'].str[:100].str.capitalize()
@@ -862,7 +785,7 @@ class ClusterAndPredict:
                 - prediction: "True", "False", or "No prediction"
                 - confidence: Confidence score (0-1)
                 - explanation: Basic explanation of the prediction
-                
+
                 If generate_detailed_explanation=True, also includes:
                 - cluster: Cluster ID
                 - similar_claims: Similar claims from training data
@@ -872,13 +795,11 @@ class ClusterAndPredict:
         if not hasattr(self, 'EmbedderObject') or self.EmbedderObject is None:
             raise ValueError("Model not fitted. Please call fit() before processing claims.")
 
-        #Convert claim into DataFrame for processing
+        # Convert claim into DataFrame for processing
         claim_df = pd.DataFrame({self.claim_column_name: [claim_text]})
         claim_df[self.veracity_column_name] = 1
         print('here 1')
 
-
-        
         # Classify claim using the existing model
         ClaimClassifierObject = ClaimClassifier(
             EmbeddingObject=self.EmbedderObject,
@@ -917,7 +838,7 @@ class ClusterAndPredict:
             "claim": claim_text,
             "prediction": "True" if predicted_veracity == 3 else "False" if predicted_veracity == 1 else "No prediction",
             "confidence": confidence_score,
-            "explanation": f"The claim was classified as {'True' if predicted_veracity == 3 else 'False'} with {confidence_score*100:.2f}% confidence."
+            "explanation": f"The claim was classified as {'True' if predicted_veracity == 3 else 'False'} with {confidence_score * 100:.2f}% confidence."
         }
         print('here 4')
 
@@ -931,98 +852,13 @@ class ClusterAndPredict:
                 generate_explanations=True
             )
             explained_row = explained_df[explained_df['text'] == claim_text].iloc[0]
-            
+
             result.update({
                 "cluster": int(explained_row['cluster']),
                 "similar_claims": explained_row['similar_claims'],
                 "cluster_name": explained_row['cluster_name'],
                 "detailed_explanation": explained_row['explanation']
             })
-            print ('here 5')
+            print('here 5')
 
         return result
-
-    def _get_model_key(self):
-        """Generate a unique key for the UMAP model based on the parameters"""
-        params_str = json.dumps({
-            **self.umap_params,
-            "n_neighbors": self.n_neighbors,
-            "min_dist": self.min_dist,
-            "num_components": self.num_components
-        }, sort_keys=True)
-        return f"umap_models/{hashlib.md5(params_str.encode()).hexdigest()}.joblib"
-
-    def _save_model(self):
-        """Save the model to S3 bucket"""
-        if not self.umap_model:
-            return
-
-        buffer = BytesIO()
-        joblib.dump(self.umap_model, buffer)
-        buffer.seek(0)
-
-        s3 = boto3.client('s3')
-        try:
-            s3.upload_fileobj(buffer, self.s3_bucket, self._get_model_key())
-            logging.info(f"Model saved to s3://{self.s3_bucket}/{self._get_model_key()}")
-        except Exception as e:
-            logging.error(f"Failed to save model: {str(e)}")
-
-    def _load_model(self):
-        """Load the model from S3 bucket"""
-        s3 = boto3.client('s3')
-        try:
-            response = s3.get_object(Bucket=self.s3_bucket, Key=self._get_model_key())
-            buffer = BytesIO(response['Body'].read())
-            model = joblib.load(buffer)
-            logging.info(f"Loaded model from s3://{self.s3_bucket}/{self._get_model_key()}")
-            return model
-        except s3.exceptions.NoSuchKey:
-            logging.info("No existing model found, will train new one")
-            return None
-        except Exception as e:
-            logging.error(f"Failed to load model: {str(e)}")
-            return None
-
-    def __getstate__(self):
-        """
-        Returns the state of the serializable object. Here we copy __dict__.
-        and then set some non-serializable properties (such as OpenAI client, Pinecone client, chroma_client, and possibly thread locks) to None.
-        """
-        state = self.__dict__.copy()
-        if 'client' in state:
-            state['client'] = None
-        if 'pc' in state:
-            state['pc'] = None
-        if 'chroma_client' in state:
-            state['chroma_client'] = None
-        if 'lock' in state:
-            state['lock'] = None
-        if 'EmbedderObject' in state:
-            state['EmbedderObject'] = None
-        if 'umap_model' in state:
-            state['umap_model'] = None
-        if 'ClusterEmbeddingsObject' in state:
-            state['ClusterEmbeddingsObject'] = None
-        return state
-
-    def __setstate__(self, state):
-        """
-        Restore the object from its saved state and reinitialize those properties that were culled before serialization.
-        Examples include recreating the OpenAI client, the Pinecone client, or a new thread lock.
-        """
-        self.__dict__.update(state)
-
-        self.client = OpenAI(api_key=os.getenv("OPEN_AI_KEY"))
-        self.pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
-
-        self.chroma_client = None
-        self.EmbedderObject = Embedder(n_neighbors=self.n_neighbors, min_dist=self.min_dist,
-                                       num_components=self.num_components, no_umap=self.no_umap,
-                                       time_stamp=self.time_stamp, random_seed=self.random_seed)
-        self.umap_model = None
-        self.ClusterEmbeddingsObject = None
-
-        import threading
-        if 'lock' not in self.__dict__ or self.__dict__['lock'] is None:
-            self.lock = threading.RLock()
