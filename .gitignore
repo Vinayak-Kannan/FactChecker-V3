@@ -25,3 +25,6 @@
 *.ipynb_checkpoints*
 *processed_files*
 .env
+.env
+RealTimeInference-GPU.pem
+RealTimeInference.pem
