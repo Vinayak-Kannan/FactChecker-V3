@@ -31,7 +31,8 @@ data_adapter._is_distributed_dataset = _is_distributed_dataset
 
 class ParametricUMAPEncoder:
     def __init__(self, num_components, embedding_np, y_tensor, trained=False, seed=23,
-                 s3_bucket="sagemaker-us-east-1-390403859474", s3_key="umap/my-param-umap-weights.h5"):
+                 s3_bucket="sagemaker-us-east-1-390403859474", s3_key="umap/my-param-umap-weights.h5",
+                 force_retrain=False):
         self.num_components = num_components
         self.embedding_np = embedding_np
         self.y_tensor = y_tensor
@@ -39,9 +40,11 @@ class ParametricUMAPEncoder:
         self.seed = seed
         self.s3_bucket = s3_bucket
         self.s3_key = s3_key
+        self.force_retrain = force_retrain
 
         tf.random.set_seed(self.seed)
         np.random.seed(self.seed)
+        random.seed(self.seed)
         random.seed(self.seed)
 
         print("seed:", self.seed)
@@ -71,7 +74,7 @@ class ParametricUMAPEncoder:
         self.reducer = ParametricUMAP(encoder=self.encoder, n_components=self.num_components)
 
         # Load weights if already trained
-        if self.trained:
+        if self.trained and not self.force_retrain:
             loaded = self._try_load_from_s3()
             if not loaded:
                 print(f"Weights file not found. Running fit() instead.")
@@ -89,23 +92,31 @@ class ParametricUMAPEncoder:
         print("Num GPUs Available during fit: ", len(tf.config.list_physical_devices('GPU')))
         start_time = time.time()
         self.reducer.fit(self.embedding_np, y=self.y_tensor)
-        self.encoder.save_weights('encoder.weights.h5')
+        # self.encoder.save_weights('encoder.weights.h5')
         end_time = time.time()
         execution_time = end_time - start_time
         print(f"Training time: {execution_time} seconds")
 
         self.trained = True
 
-    def transform(self, new_data=None):
-        if new_data is None:
-            new_data = self.embedding_np
+    # def transform(self):
+    #     if new_data is None:
+    #         new_data = self.embedding_np
+    #     start_time = time.time()
+    #     new_data = tf.convert_to_tensor(new_data)
+    #     # embedding_np = self.reducer.transform(self.embedding_np)
+    #     end_time = time.time()
+    #     execution_time = end_time - start_time
+    #     print(f"Transforming time: {execution_time} seconds")
+    #     return self.reducer.transform(new_data)
+
+    def transform(self):
         start_time = time.time()
-        new_data = tf.convert_to_tensor(new_data)
-        # embedding_np = self.reducer.transform(self.embedding_np)
+        embedding_np = self.reducer.transform(self.embedding_np)
         end_time = time.time()
         execution_time = end_time - start_time
         print(f"Transforming time: {execution_time} seconds")
-        return self.reducer.transform(new_data)
+        return embedding_np
 
     #
     # def _load_weights(self):

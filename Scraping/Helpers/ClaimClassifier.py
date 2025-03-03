@@ -29,7 +29,6 @@ import json
 import logging
 
 
-
 class ClaimClassifier:
     model = None
     pc = Pinecone(api_key=os.getenv("PINECONE_KEY"))
@@ -37,8 +36,9 @@ class ClaimClassifier:
     #     path="./../../Clustering/Clustering/Chroma")
     chroma_client = None
 
-    def __init__(self, EmbeddingObject: Embedder, n_neighbors: int, min_dist: float, num_components: int, path_to_model: str, time_stamp: str,
-                 min_cluster_size: int = 5, min_samples: int = 1,):
+    def __init__(self, EmbeddingObject: Embedder, n_neighbors: int, min_dist: float, num_components: int,
+                 path_to_model: str, time_stamp: str,
+                 min_cluster_size: int = 5, min_samples: int = 1, ):
         self.EmbeddingObject = EmbeddingObject
 
         self.min_cluster_size = min_cluster_size
@@ -51,178 +51,118 @@ class ClaimClassifier:
 
         self.bucket_name = "sagemaker-us-east-1-390403859474"
 
-    def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], claims_veracity: list[int], k: int, use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float, break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
-            list[float], list[float], list[float]):
-        np.random.seed(seed)
+    def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], claims_veracity: list[int], k: int,
+                          use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float,
+                          break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool):
+        import time
+        overall_start = time.time()
 
-        temp_df = pd.DataFrame()
-
-
-        print("Getting embeddings...")
-        claims_embeddings = []
+        # ---------------------------
+        # compute embeddings for input claims
+        t0 = time.time()
+        print("Getting embeddings for input claims...")
         claims_embeddings = self.EmbeddingObject.embed_claims_batch(claims, claims_veracity)
-        # for i, claim in enumerate(claims):
-        #     claims_embeddings.append(self.EmbeddingObject.embed_claim_to_predict(claim, get_reduced_dimesions=False, veracity=claims_veracity[i]))
+        # print("Time for embedding input claims: {:.3f} sec".format(time.time() - t0))
 
-        # Drop duplicates in claims and indices of duplicated in claims_embeddings
+        # drop duplicates in input claims
+        t1 = time.time()
         unique_claims = []
         unique_embeddings = []
         seen = set()
-
         for claim, embedding in zip(claims, claims_embeddings):
             if claim not in seen:
                 seen.add(claim)
                 unique_claims.append(claim)
                 unique_embeddings.append(embedding)
-
-        # Update claims and claims_embeddings
         claims = unique_claims
         claims_embeddings = unique_embeddings
-        
+        # print("Time for deduplication of input claims: {:.3f} sec".format(time.time() - t1))
+        # ---------------------------
 
-        old_claims = train_df['text'].tolist()
-        old_veracity = train_df['veracity'].tolist()
-        old_predict = [False] * len(old_claims)
-        current_embeddings_predict = []
-        print("Getting embeddings for train_df claims...")
-        current_embeddings_predict = self.EmbeddingObject.embed_claims_batch(old_claims, old_veracity)
-            # current_embeddings_predict.append(self.EmbeddingObject.embed_claim_to_predict(old_claims[i], get_reduced_dimesions=False, veracity=old_veracity[i]))
+        # ---------------------------
+        # load cached train embeddings
+        bucket = self.bucket_name
+        key = "embeddings/train_embeddings.pkl"  # S3 key for cached train embeddings
+        cached_claims, cached_veracity, cached_embeddings, cached_hash = ClaimClassifier.load_cached_train_embeddings(
+            bucket, key)
 
-        # Find indices of old_claims that are in claims and drop from old_claims, old_veracity, old_predict [likely not needed]
+        # compute train embeddings hash
+        current_hash = ClaimClassifier.compute_train_hash(train_df)
+
+        if cached_claims is None or cached_hash != current_hash:
+            print("Cached embeddings not found or outdated. Recomputing train_df embeddings...")
+            old_claims = train_df['text'].tolist()
+            old_veracity = train_df['veracity'].tolist()
+            old_predict = [False] * len(old_claims)
+            # recompute embeddings for train_df claims
+            cached_embeddings = self.EmbeddingObject.embed_claims_batch(old_claims, old_veracity)
+            # update cached train embeddings
+            ClaimClassifier.update_cached_train_embeddings(bucket, key, old_claims, old_veracity, cached_embeddings,
+                                                           current_hash)
+        else:
+            print("Loaded cached train embeddings with hash:", cached_hash)
+            old_claims = cached_claims
+            old_veracity = cached_veracity
+            old_predict = [False] * len(old_claims)
+        # ---------------------------
+
+        # delete duplicates in train_df claims
+        t2 = time.time()
         indices_to_drop = []
         for i, claim in enumerate(old_claims):
             if claim in seen:
-                # raise ValueError("Claim already in claims")
                 indices_to_drop.append(i)
         old_claims = [old_claims[i] for i in range(len(old_claims)) if i not in indices_to_drop]
         old_veracity = [old_veracity[i] for i in range(len(old_veracity)) if i not in indices_to_drop]
         old_predict = [old_predict[i] for i in range(len(old_predict)) if i not in indices_to_drop]
-        current_embeddings_predict = np.delete(current_embeddings_predict, indices_to_drop, axis=0)
+        import numpy as np
+        current_embeddings_predict = np.delete(np.array(cached_embeddings), indices_to_drop, axis=0)
+        # print("Time for processing cached train embeddings: {:.3f} sec".format(time.time() - t2))
+        # ---------------------------
 
+        # construct temp_df
+        t3 = time.time()
+        temp_df = pd.DataFrame()
         temp_df["text"] = claims + old_claims
         temp_df["veracity"] = [-1 for _ in range(len(claims))] + old_veracity
         temp_df["predict"] = [True for _ in range(len(claims))] + old_predict
         temp_df["predicted_veracity"] = [-1 for _ in range(len(claims))] + old_veracity
-        print("temp_df length: " + str(len(temp_df)))
-
-        # Drop duplicates in text column in temp_df
+        print("temp_df length before drop_duplicates: " + str(len(temp_df)))
+        all_embeddings = np.concatenate((claims_embeddings, current_embeddings_predict), axis=0)
+        temp_df["embeddings"] = list(all_embeddings)
         temp_df = temp_df.drop_duplicates(subset=["text"])
+        print("After drop_duplicates, temp_df length:", len(temp_df))
+        # print("Time for constructing temp_df: {:.3f} sec".format(time.time() - t3))
 
-        claims_embeddings = np.array(claims_embeddings)
-        # claims_embeddings = np.squeeze(claims_embeddings, axis=1)
-        embedding_np = np.concatenate((claims_embeddings, current_embeddings_predict), axis=0)
-        print("claims_embeddings shape: ", str(claims_embeddings.shape))
-        print("claims_embeddings predict shape: ", str(current_embeddings_predict.shape))
+        embedding_np = np.array(temp_df["embeddings"].tolist())
+        y_tensor = temp_df["veracity"].astype(int).tolist()
+        print("Final embeddings shape: ", embedding_np.shape)
+        print("Length of y_tensor: ", len(y_tensor))
 
         if use_umap:
+            t_umap = time.time()
             reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
                                 random_state=seed, n_jobs=1)
-
-            y_tensor = temp_df["veracity"].astype(int).tolist()
-            print(parametric_umap)
             if parametric_umap:
                 print("Running parametric supervised umap...")
-                param_umap_s3_key = self._generate_param_umap_s3_key()
-
-                s3 = boto3.client("s3")
-                model_already_exists = False
-                try:
-                    s3.head_object(Bucket=self.bucket_name, Key=param_umap_s3_key)
-                    model_already_exists = True
-                except botocore.exceptions.ClientError as e:
-                    if e.response["Error"]["Code"] == "404":
-                        model_already_exists = False
-                    else:
-                        raise
-
-                if model_already_exists:
-                    # **  If a model file for Parametric UMAP already exists, download and load from S3   **
-                    local_model_path = f"/tmp/param_umap_{self.num_components}.h5"
-                    logging.info(f"Downloading param UMAP model from s3://{self.bucket_name}/{param_umap_s3_key}...")
-                    s3.download_file(self.bucket_name, param_umap_s3_key, local_model_path)
-
-                    # 加载
-                    param_umap_encoder = ParametricUMAPEncoder.load(local_model_path)
-                    logging.info("Loaded param UMAP from S3, now transform embedding_np...")
-                    embedding_np = param_umap_encoder.transform(embedding_np)
-                else:
-                    # ** If it doesn't exist, train a new one and save it to S3 **
-                    logging.info("No existing param UMAP model found. Training a new one...")
-
-                    # 这里 y_tensor 是 -1/1/3... 你可以根据需要做进一步处理
-                    # 此处我们仅将embedding_np和y_tensor交给ParametricUMAPEncoder
-                    param_umap_encoder = ParametricUMAPEncoder(self.num_components,
-                                                               embedding_np,
-                                                               np.array(y_tensor),
-                                                               trained=False,
-                                                               seed=seed)
-                    embedding_np = param_umap_encoder.transform(embedding_np)
-
-                    # Save to S3 after training
-                    local_model_path = f"/tmp/param_umap_{self.num_components}.h5"
-                    param_umap_encoder.save(local_model_path)
-                    s3.upload_file(local_model_path, self.bucket_name, param_umap_s3_key)
-                    logging.info(f"New param UMAP model uploaded to s3://{self.bucket_name}/{param_umap_s3_key}")
-
-                
-                # # save embedding_np and y_tensor 
-                # with open('variables.pkl', 'wb') as f:
-                #     pickle.dump((embedding_np, y_tensor), f)
-                # print("Finished!")
-                
-                # with open('embedding_np.pkl', 'rb') as f:
-                #    embedding_np = pickle.load(f)
-                
-                # encoder = keras.Sequential([
-                #     keras.layers.InputLayer(input_shape=(3072, )),
-                #     keras.layers.Dense(units=256, activation="relu"),
-                #     keras.layers.Dense(units=256, activation="relu"),
-                #     keras.layers.Dense(units=self.num_components),
-                # ])
-                # encoder.summary()
-                # reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
-                # embedding_np = tf.convert_to_tensor(embedding_np)
-                # y_tensor = tf.convert_to_tensor(y_tensor)
-                # param_umap_encoder = ParametricUMAPEncoder(self.num_components, embedding_np, y_tensor, trained=True, seed=seed)
-                # embedding_np = param_umap_encoder.transform()
-
-            # if supervised_umap:
-            #     print("Running supervised umap...")
-            #     embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
-            #     if parametric_umap:
-            #         print("Running parametric supervised umap...")
-            #         print(reducer._history)
-            #         fig, ax = plt.subplots()
-            #         ax.plot(reducer._history['loss'])
-            #         ax.set_ylabel('Cross Entropy')
-            #         ax.set_xlabel('Epoch')
+                t_param = time.time()
+                param_umap_encoder = ParametricUMAPEncoder(self.num_components,
+                                                           embedding_np,
+                                                           y_tensor,
+                                                           trained=True,
+                                                           seed=seed,
+                                                           s3_bucket=bucket,
+                                                           s3_key="umap/my-param-umap-weights.h5")
+                embedding_np = param_umap_encoder.transform()
+                # print("Time for parametric umap transform: {:.3f} sec".format(time.time() - t_param))
             else:
                 print("Running unsupervised umap...")
                 embedding_np = reducer.fit_transform(embedding_np)
-
+            # print("Time for UMAP step: {:.3f} sec".format(time.time() - t_umap))
         temp_df["embeddings"] = embedding_np.tolist()
-        
-        # with open('temp_df.pkl', 'wb') as f:
-        #     pickle.dump(temp_df, f)
-
-        # Upload to pinecone db
-        # print("Starting upload to pinecone...")
-        # for i, row in temp_df.iterrows():
-        #     cleaned_claim_id = self.EmbeddingObject.format_text(row["text"])
-        #     self.embedding_collection_reduced.upsert(
-        #         vectors=[{
-        #             "id": cleaned_claim_id,
-        #             "values": row['embeddings'],
-        #             "metadata": {
-        #                 "claim": row["text"],
-        #                 "veracity": int(row["veracity"])
-        #             }
-        #         }],
-        #     )
-        #     if i % 50 == 0:
-        #         print(f"Uploaded {i} claims to pinecone out of length {len(temp_df)}")
 
         if use_hdbscan:
+            t_hdbscan = time.time()
             print("Running hdbscan...")
             hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
                                              approx_min_span_tree=False).fit_predict(embedding_np)
@@ -230,26 +170,200 @@ class ClaimClassifier:
             output = hdbscan_labels
             i = 0
             while break_further and i < 50:
-                print("breaking further...")
-                output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np, threshold=threshold_break)
-                # print value counts of output
+                t_break = time.time()
+                print("Breaking further, iteration {}...".format(i))
+                output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np,
+                                                                 threshold=threshold_break)
                 temp_df["cluster"] = output
+                # print("Time for breaking iteration {}: {:.3f} sec".format(i, time.time() - t_break))
                 print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
                 i += 1
-
-            # Filter temp_df where predict is False
-            temp_df_no_predictions = temp_df[temp_df["predict"] == False]
-            print("Number of clusters: " + str(len(temp_df_no_predictions["cluster"].value_counts())))
+            # print("Time for hdbscan and breaking clusters: {:.3f} sec".format(time.time() - t_hdbscan))
+            print("Number of clusters: " + str(len(temp_df["cluster"].value_counts())))
         else:
             temp_df["cluster"] = [1 for _ in range(len(temp_df))]
 
-        # Drop duplicates in text column in temp_df
-        temp_df = temp_df.drop_duplicates(subset=["text"])
-        labels, sds, confidences, temp_df = self.__run_knn(temp_df, "text", "cluster", "predict", "embeddings", "veracity", k,
-                                                  use_weightage, batch_mode=True)
+        # KNN
+        t_knn = time.time()
+        labels, sds, confidences, temp_df = self.__run_knn(temp_df, "text", "cluster", "predict", "embeddings",
+                                                           "veracity", k,
+                                                           use_weightage, batch_mode=True)
+        # print("Time for __run_knn: {:.3f} sec".format(time.time() - t_knn))
 
+        total_time = time.time() - overall_start
+        # print("Total time in classify_v2_batch: {:.3f} sec".format(total_time))
 
         return labels, sds, confidences, temp_df
+
+    # def classify_v2_batch(self, train_df: pd.DataFrame, claims: list[str], claims_veracity: list[int], k: int,
+    #                       use_weightage: bool, supervised_umap: bool, parametric_umap: bool, threshold_break: float,
+    #                       break_further: bool, seed: int, use_hdbscan: bool, use_umap: bool) -> (
+    #         list[float], list[float], list[float]):
+    #     np.random.seed(seed)
+
+    #     temp_df = pd.DataFrame()
+
+    #     print("Getting embeddings...")
+    #     claims_embeddings = []
+    #     claims_embeddings = self.EmbeddingObject.embed_claims_batch(claims, claims_veracity)
+    #     # for i, claim in enumerate(claims):
+    #     #     claims_embeddings.append(self.EmbeddingObject.embed_claim_to_predict(claim, get_reduced_dimesions=False, veracity=claims_veracity[i]))
+
+    #     # Drop duplicates in claims and indices of duplicated in claims_embeddings
+    #     unique_claims = []
+    #     unique_embeddings = []
+    #     seen = set()
+
+    #     for claim, embedding in zip(claims, claims_embeddings):
+    #         if claim not in seen:
+    #             seen.add(claim)
+    #             unique_claims.append(claim)
+    #             unique_embeddings.append(embedding)
+
+    #     # Update claims and claims_embeddings
+    #     claims = unique_claims
+    #     claims_embeddings = unique_embeddings
+
+    #     old_claims = train_df['text'].tolist()
+    #     old_veracity = train_df['veracity'].tolist()
+    #     old_predict = [False] * len(old_claims)
+    #     current_embeddings_predict = []
+    #     print("Getting embeddings for train_df claims...")
+    #     current_embeddings_predict = self.EmbeddingObject.embed_claims_batch(old_claims, old_veracity)
+    #     # current_embeddings_predict.append(self.EmbeddingObject.embed_claim_to_predict(old_claims[i], get_reduced_dimesions=False, veracity=old_veracity[i]))
+
+    #     # Find indices of old_claims that are in claims and drop from old_claims, old_veracity, old_predict [likely not needed]
+    #     indices_to_drop = []
+    #     for i, claim in enumerate(old_claims):
+    #         if claim in seen:
+    #             # raise ValueError("Claim already in claims")
+    #             indices_to_drop.append(i)
+    #     old_claims = [old_claims[i] for i in range(len(old_claims)) if i not in indices_to_drop]
+    #     old_veracity = [old_veracity[i] for i in range(len(old_veracity)) if i not in indices_to_drop]
+    #     old_predict = [old_predict[i] for i in range(len(old_predict)) if i not in indices_to_drop]
+    #     current_embeddings_predict = np.delete(current_embeddings_predict, indices_to_drop, axis=0)
+
+    #     temp_df["text"] = claims + old_claims
+    #     temp_df["veracity"] = [-1 for _ in range(len(claims))] + old_veracity
+    #     temp_df["predict"] = [True for _ in range(len(claims))] + old_predict
+    #     temp_df["predicted_veracity"] = [-1 for _ in range(len(claims))] + old_veracity
+    #     print("temp_df length: " + str(len(temp_df)))
+
+    #     # Drop duplicates in text column in temp_df
+    #     all_embeddings = np.concatenate((claims_embeddings, current_embeddings_predict), axis=0)
+    #     temp_df["embeddings"] = list(all_embeddings)
+
+    #     temp_df = temp_df.drop_duplicates(subset=["text"])
+    #     print("After drop_duplicates, length:", len(temp_df))
+
+    #     embedding_np = np.array(temp_df["embeddings"].tolist())
+    #     y_tensor = temp_df["veracity"].astype(int).tolist()
+
+    #     print("Final embeddings shape: ", embedding_np.shape)
+    #     print("Length of y_tensor: ", len(y_tensor))
+
+    #     if use_umap:
+    #         reducer = umap.UMAP(n_neighbors=self.n_neighbors, n_components=self.num_components, min_dist=self.min_dist,
+    #                             random_state=seed, n_jobs=1)
+
+    #         y_tensor = temp_df["veracity"].astype(int).tolist()
+    #         print(parametric_umap)
+    #         if parametric_umap:
+    #             print("Running parametric supervised umap...")
+
+    #             # # save embedding_np and y_tensor
+    #             # with open('variables.pkl', 'wb') as f:
+    #             #     pickle.dump((embedding_np, y_tensor), f)
+    #             # print("Finished!")
+
+    #             # with open('embedding_np.pkl', 'rb') as f:
+    #             #    embedding_np = pickle.load(f)
+
+    #             # encoder = keras.Sequential([
+    #             #     keras.layers.InputLayer(input_shape=(3072, )),
+    #             #     keras.layers.Dense(units=256, activation="relu"),
+    #             #     keras.layers.Dense(units=256, activation="relu"),
+    #             #     keras.layers.Dense(units=self.num_components),
+    #             # ])
+    #             # encoder.summary()
+    #             # reducer = ParametricUMAP(encoder=encoder, dims=(3072, ), n_components=self.num_components)
+    #             # embedding_np = tf.convert_to_tensor(embedding_np)
+    #             # y_tensor = tf.convert_to_tensor(y_tensor)
+    #             param_umap_encoder = ParametricUMAPEncoder(self.num_components,
+    #                                                        embedding_np,
+    #                                                        y_tensor,
+    #                                                        trained=True,
+    #                                                        seed=seed,
+    #                                                        s3_bucket="sagemaker-us-east-1-390403859474",
+    #                                                        s3_key="umap/my-param-umap-weights.h5"
+    #                                                        )
+    #             embedding_np = param_umap_encoder.transform()
+
+    #         # if supervised_umap:
+    #         #     print("Running supervised umap...")
+    #         #     embedding_np = reducer.fit_transform(embedding_np, y=y_tensor)
+    #         #     if parametric_umap:
+    #         #         print("Running parametric supervised umap...")
+    #         #         print(reducer._history)
+    #         #         fig, ax = plt.subplots()
+    #         #         ax.plot(reducer._history['loss'])
+    #         #         ax.set_ylabel('Cross Entropy')
+    #         #         ax.set_xlabel('Epoch')
+    #         else:
+    #             print("Running unsupervised umap...")
+    #             embedding_np = reducer.fit_transform()
+
+    #     temp_df["embeddings"] = embedding_np.tolist()
+
+    #     # with open('temp_df.pkl', 'wb') as f:
+    #     #     pickle.dump(temp_df, f)
+
+    #     # Upload to pinecone db
+    #     # print("Starting upload to pinecone...")
+    #     # for i, row in temp_df.iterrows():
+    #     #     cleaned_claim_id = self.EmbeddingObject.format_text(row["text"])
+    #     #     self.embedding_collection_reduced.upsert(
+    #     #         vectors=[{
+    #     #             "id": cleaned_claim_id,
+    #     #             "values": row['embeddings'],
+    #     #             "metadata": {
+    #     #                 "claim": row["text"],
+    #     #                 "veracity": int(row["veracity"])
+    #     #             }
+    #     #         }],
+    #     #     )
+    #     #     if i % 50 == 0:
+    #     #         print(f"Uploaded {i} claims to pinecone out of length {len(temp_df)}")
+
+    #     if use_hdbscan:
+    #         print("Running hdbscan...")
+    #         hdbscan_labels = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, min_samples=self.min_samples,
+    #                                          approx_min_span_tree=False).fit_predict(embedding_np)
+    #         temp_df["cluster"] = hdbscan_labels
+    #         output = hdbscan_labels
+    #         i = 0
+    #         while break_further and i < 50:
+    #             print("breaking further...")
+    #             output, break_further = self.break_clusters_down(output, veracities=y_tensor, embeddings=embedding_np,
+    #                                                              threshold=threshold_break)
+    #             # print value counts of output
+    #             temp_df["cluster"] = output
+    #             print(temp_df.groupby(['cluster', 'predict'])['veracity'].value_counts())
+    #             i += 1
+
+    #         # Filter temp_df where predict is False
+    #         temp_df_no_predictions = temp_df[temp_df["predict"] == False]
+    #         print("Number of clusters: " + str(len(temp_df_no_predictions["cluster"].value_counts())))
+    #     else:
+    #         temp_df["cluster"] = [1 for _ in range(len(temp_df))]
+
+    #     # Drop duplicates in text column in temp_df
+    #     temp_df = temp_df.drop_duplicates(subset=["text"])
+    #     labels, sds, confidences, temp_df = self.__run_knn(temp_df, "text", "cluster", "predict", "embeddings",
+    #                                                        "veracity", k,
+    #                                                        use_weightage, batch_mode=True)
+
+    #     return labels, sds, confidences, temp_df
 
     def _generate_param_umap_s3_key(self):
         """
@@ -276,7 +390,8 @@ class ClaimClassifier:
                     number_to_predict = 0
                 percent_true = (veracity_counts.get(3, 0) / (total - number_to_predict))
 
-                if (percent_true < 0.5 and percent_true > 1 - threshold) or (percent_true >= 0.5 and percent_true < threshold) or count > 1000000:
+                if (percent_true < 0.5 and percent_true > 1 - threshold) or (
+                        percent_true >= 0.5 and percent_true < threshold) or count > 1000000:
                     change_needed = True
                     # Get the embeddings of the claims with the label
                     embeddings_with_label = [embeddings[i] for i in range(len(embeddings)) if labels[i] == label]
@@ -339,7 +454,8 @@ class ClaimClassifier:
 
         return
 
-    def __run_knn(self, output_df: pd.DataFrame, claim_col: str, cluster_col: str, predict_col: str, embedding_col: str, veracity_col: str, k: int,
+    def __run_knn(self, output_df: pd.DataFrame, claim_col: str, cluster_col: str, predict_col: str, embedding_col: str,
+                  veracity_col: str, k: int,
                   use_weightage: bool, batch_mode: bool = False):
         df_with_only_predictions = output_df[output_df[predict_col] == True]
         df_no_predictions = output_df[output_df[predict_col] == False]
@@ -440,3 +556,47 @@ class ClaimClassifier:
                 confidences_final.append(confidence)
                 output_df.at[index, "predicted_veracity"] = int(most_common_label)
         return labels, sds, confidences_final, output_df
+
+    @staticmethod
+    def compute_train_hash(train_df: pd.DataFrame) -> str:
+        """
+        Generate MD5 hashes from the text and veracity columns of the training data to ensure that
+        the cache is consistent with the current data.
+        """
+        concat_str = "".join(train_df['text'].astype(str).tolist()) + "".join(train_df['veracity'].astype(str).tolist())
+        return hashlib.md5(concat_str.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def load_cached_train_embeddings(bucket: str, key: str):
+        """
+        Attempt to load cached embeddings file from S3, return (claims, veracity, embeddings, stored_hash)
+        If it does not exist, return (None, None, None, None)
+        """
+        s3 = boto3.client('s3')
+        try:
+            obj = s3.get_object(Bucket=bucket, Key=key)
+            cache_data = pickle.loads(obj['Body'].read())
+            return cache_data["claims"], cache_data["veracity"], cache_data["embeddings"], cache_data.get("train_hash")
+        except s3.exceptions.NoSuchKey:
+            print("No cached embeddings found in S3.")
+            return None, None, None, None
+        except Exception as e:
+            print("Error loading cached embeddings:", e)
+            return None, None, None, None
+
+    @staticmethod
+    def update_cached_train_embeddings(bucket: str, key: str, claims: list, veracity: list, embeddings,
+                                       train_hash: str):
+        """
+        Update the cached embeddings file in S3 with new embeddings and hash
+        """
+        cache_data = {
+            "claims": claims,
+            "veracity": veracity,
+            "embeddings": embeddings,
+            "train_hash": train_hash
+        }
+        pickle_data = pickle.dumps(cache_data)
+        s3 = boto3.client('s3')
+        s3.put_object(Bucket=bucket, Key=key, Body=pickle_data)
+        print("Updated cache in S3 with new embeddings and hash:", train_hash)

@@ -49,7 +49,8 @@ class ClusterAndPredict:
                  train_df: pd.DataFrame = pd.DataFrame(),
                  s3_bucket: str = "sagemaker-us-east-1-390403859474",
                  umap_params: dict = None,
-                 cluster_params: dict = None):
+                 cluster_params: dict = None,
+                 force_retrain=False):
 
         # Store the parameters
         self.s3_bucket = s3_bucket
@@ -57,6 +58,7 @@ class ClusterAndPredict:
         self.cluster_params = cluster_params or {}
         self.umap_model = None  # UMAP model parameters
         self.model_checksum = None  # Checksum of the model
+        self.force_retrain = force_retrain
 
         # pd.set_option('future.no_silent_downcasting', True)
         self.test_text = None
@@ -194,6 +196,68 @@ class ClusterAndPredict:
 
         self.test_text = X
         self.actual_veracities = y
+
+    # ====================================================================================================
+
+    # This fit will print out the running time
+    # def fit(self, X: list, y: list):
+    #     import time
+    #     overall_start = time.time()
+
+    #     # 记录 Embedder 对象初始化时间
+    #     t_embed_start = time.time()
+    #     self.EmbedderObject = Embedder(n_neighbors=self.n_neighbors, min_dist=self.min_dist,
+    #                                 num_components=self.num_components, no_umap=self.no_umap,
+    #                                 time_stamp=self.time_stamp, random_seed=self.random_seed)
+    #     t_embed = time.time() - t_embed_start
+    #     print("Time for Embedder initialization: {:.3f} sec".format(t_embed))
+
+    #     # 记录 ClaimClassifier 对象初始化时间
+    #     t_classifier_init_start = time.time()
+    #     ClaimClassifierObject = ClaimClassifier(
+    #         EmbeddingObject=self.EmbedderObject,
+    #         path_to_model='../../Clustering/Models/',
+    #         time_stamp=self.time_stamp,
+    #         min_cluster_size=self.min_cluster_size,
+    #         min_samples=self.min_samples,
+    #         min_dist=self.min_dist,
+    #         num_components=self.num_components,
+    #         n_neighbors=self.n_neighbors
+    #     )
+    #     t_classifier_init = time.time() - t_classifier_init_start
+    #     print("Time for ClaimClassifier initialization: {:.3f} sec".format(t_classifier_init))
+
+    #     print("Fitting")
+    #     print(X, y)
+
+    #     # 记录 classify_v2_batch 执行时间
+    #     t_classify_start = time.time()
+    #     predicted_mean, predicted_sd, predicted_confidence, cluster_df = ClaimClassifierObject.classify_v2_batch(
+    #         self.train_df,
+    #         X,
+    #         y,
+    #         self.k,
+    #         self.use_weightage,
+    #         self.supervised_umap,
+    #         self.parametric_umap,
+    #         self.threshold_break,
+    #         self.break_further,
+    #         self.random_seed_val,
+    #         self.use_hdbscan,
+    #         not self.no_umap
+    #     )
+    #     t_classify = time.time() - t_classify_start
+    #     print("Time for classify_v2_batch: {:.3f} sec".format(t_classify))
+
+    #     overall_time = time.time() - overall_start
+    #     print("Total fit() execution time: {:.3f} sec".format(overall_time))
+
+    #     self.clusters_df = cluster_df
+    #     self.predicted_means = predicted_mean
+    #     self.predicted_sds = predicted_sd
+    #     self.confidences = predicted_confidence
+    #     self.test_text = X
+    #     self.actual_veracities = y
 
     def score(self, _, __):
         self.accuracy = self.calculate_accuracy(self.clusters_df)
@@ -535,7 +599,7 @@ class ClusterAndPredict:
 
         # Get count of true positives
         true_positives = \
-        cluster_df[(cluster_df['veracity'] == value) & (cluster_df['predicted_veracity'] == value)].shape[0]
+            cluster_df[(cluster_df['veracity'] == value) & (cluster_df['predicted_veracity'] == value)].shape[0]
         if (precision == 0 or recall == 0):
             if true_positives == 0:
                 print("sad...")

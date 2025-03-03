@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Test script for process_single_claim
@@ -10,62 +11,81 @@ import boto3
 from io import BytesIO
 import json
 import sys, logging
-
-logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 import joblib
 import hashlib
+import argparse
+
+logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 
-def main(test_claim: str):
-    # 1. Create sample training data
-    s3_bucket = "sagemaker-us-east-1-390403859474"
+def main(test_claim: str, force_retrain=False):
+    timings = {}
+    total_start = time.time()
 
-    params = ParameterCreator().get_parameters()
-
+    # 1. Load S3 data
+    start = time.time()
     train_df = load_s3_data()
+    timings['Load S3 data'] = time.time() - start
 
     if train_df.empty:
         print("Cannot load data from S3 bucket")
         return
 
-    # add test_claim to train_df
+    # 2. Prepare new record DataFrame
+    start = time.time()
     new_record_df = pd.DataFrame({'text': [test_claim], 'veracity': [1]})
+    timings['Prepare new record DataFrame'] = time.time() - start
 
+    # 3. Get parameters from ParameterCreator
+    start = time.time()
+    params = ParameterCreator().get_parameters()
+    timings['Get parameters'] = time.time() - start
+
+    # 4. For each param, create and fit model
     for param in params:
+        # 清理不需要的字段
         percentage = 0.75
         use_only_card = param['use_only_CARD']
         size_of_dataset = param['size_of_dataset']
         del param['size_of_dataset']
         del param['use_only_CARD']
 
-        # if not model_exists:
-        #     print("Training new model.")
         print("Creating a new model for param:", param)
-        model = ClusterAndPredict(**param, train_df=train_df)
+        start = time.time()
+        model = ClusterAndPredict(**param, train_df=train_df, force_retrain=force_retrain)
+        timings['Create ClusterAndPredict object'] = time.time() - start
 
         print("Fitting the model with new data...")
+        start = time.time()
         model.fit(
             new_record_df['text'].tolist(),
             new_record_df['veracity'].tolist()
         )
+        timings['Model fit'] = time.time() - start
 
+        start = time.time()
         object_output = model.get_all_performance_metrics()
         cluster_df = object_output['cluster_df']
+        timings['Get performance metrics'] = time.time() - start
+
         print("This is the cluster_df", cluster_df)
 
+    # 5. Generate explanations
+    start = time.time()
     cluster_df = model.generate_explanations_and_similar_for_each_claim(cluster_df, "predict", "cluster", "text")
+    timings['Generate explanations'] = time.time() - start
 
-    # get the test_claim from the cluster_df
+    # 6. Extract result for test_claim
+    start = time.time()
     filtered_df = cluster_df[cluster_df['text'] == test_claim]
     filtered_dict = filtered_df.to_dict(orient='records')
-    print(filtered_dict)
     if filtered_dict:
         result = filtered_dict[0]
     else:
         result = {}
+    timings['Extract result for test_claim'] = time.time() - start
 
-    # 3. Test data
-
+    # 7. Prepare final result dictionary
     result_dict = {
         "claim": result.get("text", test_claim),
         "prediction": result.get("predicted_veracity", "Error"),
@@ -75,7 +95,15 @@ def main(test_claim: str):
     }
 
     print("Output Results:")
-    print(json.dumps(result_dict))
+    print(json.dumps(result_dict, indent=2))
+
+    total_time = time.time() - total_start
+    timings['Total time'] = total_time
+
+    # 统一打印各部分的运行时间
+    print("\n=== Timing Summary ===")
+    for key, duration in timings.items():
+        print(f"{key}: {duration:.3f} seconds")
 
     return 0
 
@@ -100,7 +128,7 @@ def load_s3_data() -> pd.DataFrame:
         for page in paginator.paginate(Bucket=s3_bucket, Prefix=s3_prefix):
             for obj in page.get('Contents', []):
                 if obj['Key'].endswith('.json'):
-                    # Read CSV content directly into memory
+                    # Read JSON content directly into memory
                     response = s3_client.get_object(
                         Bucket=s3_bucket,
                         Key=obj['Key']
@@ -120,21 +148,30 @@ def load_s3_data() -> pd.DataFrame:
 
 
 def clean_columns_for_s3(cluster_df):
-    # Loop through all 'predicted_veracity' and 1 and 3 to True and False and 4 and 5 to No prediction in a new column called 'cleaned_predicted_veracity'
-    # cluster_df['cleaned_predicted_veracity'] = cluster_df['predicted_veracity'].map({1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
+    # Adjust columns as needed (例如大写首字母等)
     cluster_df['cleaned_veracity'] = cluster_df['veracity'].map(
         {1: 'False', 3: 'True', 4: 'No prediction', 5: 'No prediction'})
-    # Capatalize text column first letter
     cluster_df['text'] = cluster_df['text'].str.capitalize()
     cluster_df['id'] = cluster_df['text'].str[:100].str.capitalize()
     return cluster_df
 
 
+# if __name__ == '__main__':
+
+#     if len(sys.argv) > 1:
+#         test_claim = sys.argv[1]
+#     else:
+#         test_claim = "Default test claim"
+#     result = main(test_claim)
+#     print(json.dumps(result))
+
+
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        test_claim = sys.argv[1]
-    else:
-        test_claim = "Default test claim"
-    result = main(test_claim)
-    # turn result into JSON
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force-retrain", action="store_true", help="Force retraining even if weights exist")
+    parser.add_argument("test_claim", nargs="?", default="Default test claim", help="Test claim text")
+    args = parser.parse_args()
+
+    # 根据命令行参数设置 force_retrain 参数
+    result = main(args.test_claim, force_retrain=args.force_retrain)
     print(json.dumps(result))
